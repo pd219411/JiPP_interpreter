@@ -1,0 +1,1 @@
+bnfc -m -haskell <filename>
