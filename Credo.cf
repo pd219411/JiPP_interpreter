@@ -1,35 +1,37 @@
-  comment "//" ;
-  comment "/*" "*/" ;
-  
-  Prog. Program  ::= [Function] ;
-  Fun.  Function ::= Type Ident "(" [Decl] ")" "{" [Stm] "}" ;
-  Dec.  Decl     ::= Type [Ident] ;
-  
-  terminator Function "" ;
-  terminator Stm "" ;
-  separator  Decl "," ;
-  separator  nonempty Ident "," ;
-  
-  SDecl.   Stm ::= Decl ";"  ;
-  SExp.    Stm ::= Exp ";" ;
-  SBlock.  Stm ::= "{" [Stm] "}" ;
-  SWhile.  Stm ::= "while" "(" Exp ")" Stm ;
-  SReturn. Stm ::= "return" Exp  ";" ;
-  
-  EAss.    Exp  ::= Ident "=" Exp ;
-  ELt.     Exp1 ::= Exp2 "<" Exp2 ;
-  EAdd.    Exp2 ::= Exp2 "+" Exp3 ;
-  ESub.    Exp2 ::= Exp2 "-" Exp3 ;
-  EMul.    Exp3 ::= Exp3 "*" Exp4 ;
-  Call.    Exp4 ::= Ident "(" [Exp] ")" ;
-  EVar.    Exp4 ::= Ident ;
-  EStr.    Exp4 ::= String ;
-  EInt.    Exp4 ::= Integer ;
-  EDouble. Exp4 ::= Double ;
-  
-  coercions Exp 4 ;
-  
-  separator Exp "," ;
-  
-  TInt.    Type ::= "int" ;
-  TDouble. Type ::= "double" ;
+comment "//" ;
+comment "/*" "*/" ;
+
+Program. Program ::= [Function];
+terminator Function "";
+
+Function.  Function ::= Type Ident "(" [Declaration] ")" "{" [Statement] "}";
+separator  Declaration ",";
+terminator Statement ";";
+
+Declaration.  Declaration ::= Type Ident;
+
+-- separator  nonempty Ident "," ;
+
+SDecl.   Statement ::= Declaration;
+SExpression.    Statement ::= Expression;
+SBlock.  Statement ::= "{" [Statement] "}" ;
+--SWhile.  Statement ::= "while" "(" Expression ")" Statement ;
+--SReturn. Statement ::= "return" Expression;
+
+EAssignment. Expression  ::= Ident "=" Expression ;
+ELess. Expression1 ::= Expression2 "<" Expression2 ;
+EAdd.    Expression2 ::= Expression2 "+" Expression3 ;
+--ESub.    Expression2 ::= Expression2 "-" Expression3 ;
+--EMul.    Expression3 ::= Expression3 "*" Expression4 ;
+ECall.    Expression4 ::= Ident "(" [Expression] ")" ;
+EVariable.    Expression4 ::= Ident ;
+--EStr.    Expression4 ::= String ;
+EInteger.    Expression4 ::= Integer ;
+--EDouble. Expression4 ::= Double ;
+
+coercions Expression 4 ;
+
+separator Expression ",";
+
+TInt.    Type ::= "int";
+--TDouble. Type ::= "double";

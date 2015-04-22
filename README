@@ -1,1 +1,3 @@
 bnfc -m -haskell <filename>
+
+bnfc -m -haskell Credo.cf && make && cat example.c | ./TestCredo
