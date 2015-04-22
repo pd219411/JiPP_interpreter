@@ -25,13 +25,18 @@ EAdd.    Expression2 ::= Expression2 "+" Expression3 ;
 --EMul.    Expression3 ::= Expression3 "*" Expression4 ;
 ECall.    Expression4 ::= Ident "(" [Expression] ")" ;
 EVariable.    Expression4 ::= Ident ;
---EStr.    Expression4 ::= String ;
-EInteger.    Expression4 ::= Integer ;
---EDouble. Expression4 ::= Double ;
+--EStr.    Expression4 ::= String;
+EBoolean. Expression4 ::= Boolean;
+EInteger.    Expression4 ::= Integer;
+--EDouble. Expression4 ::= Double;
 
 coercions Expression 4 ;
 
 separator Expression ",";
 
-TInt.    Type ::= "int";
+TBoolean. Type ::= "bool";
+TInt. Type ::= "int";
 --TDouble. Type ::= "double";
+
+ValueFalse. Boolean ::= "false";
+ValueTrue. Boolean ::= "true";
