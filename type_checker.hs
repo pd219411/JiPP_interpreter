@@ -36,19 +36,37 @@ type Semantics a = Control.Monad.State.State (Env, St) a
 --takeValue loc = do
 --  Just val <- gets (M.lookup loc)
 --  return val
+data DeducedType =
+	DeducedNone |
+	DeducedError |
+	DeducedInteger
+	deriving (Eq,Ord,Show)
 
-eval :: Expression -> Semantics Int
 
-eval (EVar var) = do
-  Just loc <- asks (M.lookup var)
-  Just val <- gets (M.lookup loc)
-  return val
-eval (EOp op exp1 exp2) = do
-  val1 <- eval exp1
-  val2 <- eval exp2
-  return $ evalOp op val1 val2
+eval :: Expression -> Semantics DeducedType
 
-eval (EInteger i) = return i
+eval (EAssignment identifier expression) = do
+	return DeducedNone
+
+eval (ELess expression1 expression2) = do
+	eval expression1
+
+eval (EAdd expression1 expression2) = do
+	eval expression1
+
+eval (ECall identifier args) = do
+	return DeducedError
+
+eval (EVariable identifier) = do
+	return DeducedError
+
+eval (EInteger integer) = do
+	return DeducedInteger
+
+--eval (EVar var) = do
+--  Just loc <- asks (M.lookup var)
+--  Just val <- gets (M.lookup loc)
+--  return val
 
 --evalExp :: Exp -> Int
 --evalExp expr =
@@ -56,70 +74,72 @@ eval (EInteger i) = return i
 --  let stateStuff = runReaderT readerStuff emptyEnv in
 --  evalState stateStuff initialSt
 
-evalDecl :: Decl -> Semantics Env
-evalDecl (DVar var expr) = do
-  Just newLoc <- gets (M.lookup 0)
-  val <- eval expr
-  modify (M.insert newLoc val)
-  modify (M.insert 0 (newLoc+1))
-  env <- ask
-  return $ M.insert var newLoc env
--- moĹźna teĹź asks M.insert var newLoc
+evalDeclaration :: Declaration -> Semantics DeducedType
+evalDeclaration (Declaration type' identifier) = do
+--	Just newLoc <- gets (M.lookup 0)
+--	val <- eval expr
+--	modify (M.insert newLoc val)
+--	modify (M.insert 0 (newLoc+1))
+--	env <- ask
+--	return $ M.insert var newLoc env
+	return DeducedNone
 
 -- Dodatkowa zabawa, aby druga deklaracja z listy mogla juz uzywac pierwszej zmiennej
-evalDecls :: [Decl] -> Semantics Env
-evalDecls [] = ask
-evalDecls (decl:decls) = do
-  env' <- evalDecl decl
-  local (const env') (evalDecls decls)
+--evalDecls :: [Decl] -> Semantics Env
+--evalDecls [] = ask
+--evalDecls (decl:decls) = do
+--  env' <- evalDecl decl
+--  local (const env') (evalDecls decls)
 
-interpret :: Stmt -> Semantics ()
-interpret SSkip = return ()
+evalStatement :: Statement -> Semantics DeducedType
+evalStatement (SDeclaration declaration) = do
+	evalDeclaration declaration
 
-interpret (SBlock decls stmts) = do
-  env' <- evalDecls decls
-  local (const env') (mapM_ interpret stmts)
+evalStatement (SExpression expression) = do
+	eval expression
 
-interpret (SAssign var expr) = do
-  val <- eval expr
-  Just loc <-asks (M.lookup var)
-  modify (M.insert loc val)
+evalStatement (SBlock statements) = do
+	evalStatement (statements !! 0)
 
-interpret (SIf bexpr stmt1 stmt2) = do
-  bval <- eval bexpr
-  if bval == 0
-     then interpret stmt2
-     else interpret stmt1
+evalFunction :: Function -> Semantics DeducedType
+evalFunction (Function type' identifier declarations statements) = do
+	evalStatement (statements !! 0)
 
-interpret this@(SWhile bexpr stmt) = do
-  bval <- eval bexpr
-  if bval == 0
-     then return ()
-     else do
-       interpret stmt
-       interpret this
+evalProgram :: Program -> Semantics DeducedType
+evalProgram (Program functions) = do
+	evalFunction (functions !! 0)
 
-execStmt :: Stmt -> IO ()
-execStmt stmt = do
-  let ((), finalState) =  runState (runReaderT (interpret stmt) emptyEnv) initialSt
-  print finalState
+--interpret (SBlock decls stmts) = do
+--  env' <- evalDecls decls
+--  local (const env') (mapM_ interpret stmts)
+
+--interpret (SAssign var expr) = do
+--  val <- eval expr
+--  Just loc <-asks (M.lookup var)
+--  modify (M.insert loc val)
+
+checkAST :: Program -> (DeducedType, (Env, St))
+checkAST ast =
+	Control.Monad.State.runState (evalProgram ast) (emptyEnv, initialSt)
+
+--execStmt :: Stmt -> IO ()
+--execStmt stmt = do
+--  let ((), finalState) =  runState (runReaderT (interpret stmt) emptyEnv) initialSt
+--  print finalState
 ---------------------------------
 
 type ParseFunction a = [Token] -> Err a
-
-run :: (Print a, Show a) => ParseFunction a -> String -> IO ()
-run p s =
-	let ts = myLexer s in
-	case p ts of
-		Bad s -> do
-			putStrLn "\nParse              Failed...\n"
-			--putStrV v "Tokens:"
-			--putStrV v $ show ts
-			--putStrLn s
-		Ok tree -> do
-			putStrLn "Parse Successful!"
-			--showTree v tree
-			putStrLn (show tree)
+parseResult :: ParseFunction a -> String -> Err a
+parseResult p s = p (myLexer s)
 
 main = do
-	hGetContents stdin >>= run pProgram
+	--hGetContents stdin >>= run pProgram
+	contents <- getContents
+	--print contents
+	let result = (parseResult pProgram contents)
+	case result of
+		Bad s -> do
+			print "Parse Failed"
+			print s
+		Ok tree -> do
+			print $ checkAST tree

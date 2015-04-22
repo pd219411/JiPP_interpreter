@@ -12,7 +12,7 @@ Declaration.  Declaration ::= Type Ident;
 
 -- separator  nonempty Ident "," ;
 
-SDecl.   Statement ::= Declaration;
+SDeclaration.   Statement ::= Declaration;
 SExpression.    Statement ::= Expression;
 SBlock.  Statement ::= "{" [Statement] "}" ;
 --SWhile.  Statement ::= "while" "(" Expression ")" Statement ;
