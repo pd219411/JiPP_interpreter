@@ -22,7 +22,8 @@ deduceFromType :: Type -> TypeInformation
 deduceFromType type' = DeducedType type'
 
 type Location = Int
-type FunctionsEnvironment = Data.Map.Map Ident (Type, [Type])
+type FunctionTypeInformation = (Type, [Type])
+type FunctionsEnvironment = Data.Map.Map Ident FunctionTypeInformation
 type VariablesEnvironment = Data.Map.Map Ident Location
 type LocationValues = Data.Map.Map Location Type
 
@@ -66,8 +67,20 @@ nextLocation e =
 	then 0
 	else (maximum (Data.Map.elems e)) + 1
 
-addType :: TypeCheckerState -> Ident -> Type -> TypeCheckerState
-addType state identifier type' = --TODO: what if one exists on this level
+addFunction :: TypeCheckerState -> Ident -> FunctionTypeInformation -> TypeCheckerState
+addFunction state identifier info = --let ret = Data.Map.lookup identifier (functions state) in
+	TypeCheckerState {
+		functions = (Data.Map.insert identifier info (functions state)),
+		variables = (variables state),
+		locations = (locations state)
+	}
+
+getFunction :: TypeCheckerState -> Ident -> Maybe FunctionTypeInformation
+getFunction state identifier =
+	Data.Map.lookup identifier (functions state)
+
+addVariable :: TypeCheckerState -> Ident -> Type -> TypeCheckerState
+addVariable state identifier type' = --TODO: what if one exists on this level
 	let new_location = (nextLocation (variables state)) in
 	TypeCheckerState {
 		functions = (functions state),
@@ -93,6 +106,15 @@ typeStatement type' DeducedNone = type'
 typeStatement (DeducedError m1) (DeducedError m2) = DeducedError (m1 ++ m2)
 typeStatement type1 type2  = (DeducedError ["TODO deduction"])
 
+genericListEval :: (a -> Semantics e) -> [a] -> Semantics [e]
+genericListEval evaluator abstraction_list =
+		case abstraction_list of
+		[] -> return []
+		(abstraction:xs) -> do
+			head <- (evaluator abstraction)
+			tail <- (genericListEval evaluator xs)
+			return ([head] ++ tail)
+
 eval :: Expression -> Semantics TypeInformation
 
 eval (EAssignment identifier expression) = do
@@ -108,8 +130,14 @@ eval (EAdd expression1 expression2) = do
 	type2 <- eval expression2
 	return (typeOperationSame type1 type2)
 
-eval (ECall identifier args) = do
-	return (DeducedError []) --TODO check if function exists and if params fit args
+eval (ECall identifier@(Ident string) args) = do
+	state <- Control.Monad.State.get
+	case (getFunction state identifier) of
+		Nothing -> return (DeducedError ["Unknown function identifier: " ++ string])
+		Just info -> do
+			types <- (genericListEval eval args)
+			return (checkFunctionCall (snd info) types)
+			--return (DeducedError [(show types)])
 
 eval (EVariable identifier) = do
 	state <- Control.Monad.State.get
@@ -122,25 +150,31 @@ eval (EInteger integer) = do
 	return (DeducedType TInt)
 
 
+checkFunctionCall :: [Type] -> [TypeInformation] -> TypeInformation
+checkFunctionCall declaration_info args_info =
+	let number_of_declared_args = (length declaration_info) in
+	let number_of_provided_args = (length args_info) in
+	if (number_of_declared_args /= number_of_provided_args)
+	then DeducedError ["Bad number of arguments. Declared: " ++ (show number_of_declared_args) ++ " provided: " ++ (show number_of_provided_args)]
+	else checkArgsList declaration_info args_info
+
+checkArgsList :: [Type] -> [TypeInformation] -> TypeInformation
+checkArgsList [] [] = DeducedNone
+checkArgsList (x:xs) (y:ys) =
+	case y of
+		(DeducedType type') ->
+			if type' /= x
+			then DeducedError ["Argument type mismatch."]
+			else checkArgsList xs ys
+		_ -> DeducedError ["Argument of unexpected type."]
+
+
 evalDeclaration :: Declaration -> Semantics TypeInformation
 evalDeclaration (Declaration type' identifier) = do
---	Just newLoc <- gets (M.lookup 0)
---	val <- eval expr
---	modify (M.insert newLoc val)
---	modify (M.insert 0 (newLoc+1))
---	env <- ask
---	return $ M.insert var newLoc env
-	state <- Control.Monad.State.get
-	Control.Monad.State.put (addType state identifier type')
-	return DeducedNone
-
-evalDeclarations :: [Declaration] -> Semantics TypeInformation
-evalDeclarations [] =
-	return DeducedNone
-evalDeclarations (x:xs) = do
-	tmp <- evalDeclaration x
-	evalDeclarations xs
-	return tmp
+--	state <- Control.Monad.State.get
+--	Control.Monad.State.put (addVariable state identifier type')
+	Control.Monad.State.modify (\state -> addVariable state identifier type')
+	return (DeducedType type')
 
 evalStatement :: Statement -> Semantics TypeInformation
 evalStatement (SDeclaration declaration) = do
@@ -160,26 +194,21 @@ evalStatements (x:xs) = do
 	type2 <-evalStatements xs
 	return (typeStatement type1 type2)
 
+typeFromDeclaration :: Declaration -> Type
+typeFromDeclaration (Declaration type' identifier) = type'
+
 evalFunction :: Function -> Semantics TypeInformation
 evalFunction (Function type' identifier declarations statements) = do
-	tmp <- evalDeclarations declarations
---	TODO: modify environment to include function declaration
+	tmp <- genericListEval evalDeclaration declarations
+	Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
 	evalStatements statements
+	--TODO: clear declarations after use
 
-evalProgram :: Program -> Semantics TypeInformation
+evalProgram :: Program -> Semantics [TypeInformation]
 evalProgram (Program functions) = do
-	evalFunction (functions !! 0)
+	genericListEval evalFunction functions
 
---interpret (SBlock decls stmts) = do
---  env' <- evalDecls decls
---  local (const env') (mapM_ interpret stmts)
-
---interpret (SAssign var expr) = do
---  val <- eval expr
---  Just loc <-asks (M.lookup var)
---  modify (M.insert loc val)
-
-checkAST :: Program -> (TypeInformation, TypeCheckerState)
+checkAST :: Program -> ([TypeInformation], TypeCheckerState)
 checkAST ast =
 	Control.Monad.State.runState (evalProgram ast) initialState
 
