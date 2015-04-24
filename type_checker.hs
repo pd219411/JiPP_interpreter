@@ -22,19 +22,25 @@ deduceFromType :: Type -> TypeInformation
 deduceFromType type' = DeducedType type'
 
 type Location = Int
-type IdentifierEnvironment = Data.Map.Map Ident Location
+type FunctionsEnvironment = Data.Map.Map Ident (Type, [Type])
+type VariablesEnvironment = Data.Map.Map Ident Location
 type LocationValues = Data.Map.Map Location Type
 
 data TypeCheckerState =
 	TypeCheckerState {
-		xxx :: IdentifierEnvironment,
-		yyy :: LocationValues
+		functions :: FunctionsEnvironment,
+		variables :: VariablesEnvironment,
+		locations :: LocationValues
 	}
 	deriving (Eq,Ord,Show)
 
 initialState :: TypeCheckerState
 initialState =
-	TypeCheckerState { xxx = Data.Map.empty, yyy = Data.Map.empty }
+	TypeCheckerState {
+		functions = Data.Map.empty,
+		variables = Data.Map.empty,
+		locations = Data.Map.empty
+	}
 
 type Semantics a = Control.Monad.State.State TypeCheckerState a
 -- albo StateT St (Reader Env) a
@@ -49,12 +55,12 @@ getTypeFromLocation m l =
 
 getType :: TypeCheckerState -> Ident -> TypeInformation
 getType state identifier@(Ident string) =
-	let ret = Data.Map.lookup identifier (xxx state) in
+	let ret = Data.Map.lookup identifier (variables state) in
 	case ret of
 		Nothing -> DeducedError ["Unknown identifier: " ++ string]
-		Just v -> getTypeFromLocation (yyy state) v
+		Just v -> getTypeFromLocation (locations state) v
 
-nextLocation :: IdentifierEnvironment -> Location
+nextLocation :: VariablesEnvironment -> Location
 nextLocation e =
 	if Data.Map.null e
 	then 0
@@ -62,8 +68,12 @@ nextLocation e =
 
 addType :: TypeCheckerState -> Ident -> Type -> TypeCheckerState
 addType state identifier type' = --TODO: what if one exists on this level
-	let new_location = (nextLocation (xxx state)) in
-	TypeCheckerState { xxx = (Data.Map.insert identifier new_location (xxx state)), yyy = (Data.Map.insert new_location type' (yyy state)) }
+	let new_location = (nextLocation (variables state)) in
+	TypeCheckerState {
+		functions = (functions state),
+		variables = (Data.Map.insert identifier new_location (variables state)),
+		locations = (Data.Map.insert new_location type' (locations state))
+	}
 
 typeOperationSame :: TypeInformation -> TypeInformation -> TypeInformation
 typeOperationSame type1 type2 =
