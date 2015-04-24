@@ -10,24 +10,20 @@ import ErrM
 
 
 import qualified Data.Map
---import Control.Monad.Reader
 import qualified Control.Monad.State
 --------------------------------
-data DeducedType =
+data TypeInformation =
 	DeducedNone |
 	DeducedError [String] |
-	DeducedInteger
+	DeducedType Type
 	deriving (Eq,Ord,Show)
 
-deduceFromType :: Type -> DeducedType
-deduceFromType type' =
-	case type' of
-		TBoolean -> DeducedError ["TODO: support booleans"]
-		TInt -> DeducedInteger
+deduceFromType :: Type -> TypeInformation
+deduceFromType type' = DeducedType type'
 
 type Location = Int
 type IdentifierEnvironment = Data.Map.Map Ident Location
-type LocationValues = Data.Map.Map Location DeducedType
+type LocationValues = Data.Map.Map Location Type
 
 data TypeCheckerState =
 	TypeCheckerState {
@@ -44,14 +40,14 @@ type Semantics a = Control.Monad.State.State TypeCheckerState a
 -- albo StateT St (Reader Env) a
 -- albo Monada = ReaderT Env (StateT St Identity)
 
-getTypeFromLocation :: LocationValues -> Location -> DeducedType
+getTypeFromLocation :: LocationValues -> Location -> TypeInformation
 getTypeFromLocation m l =
 	let ret = Data.Map.lookup l m in
 	case ret of
 		Nothing -> DeducedError ["Unknown location"]
-		Just v -> v
+		Just v -> DeducedType v
 
-getType :: TypeCheckerState -> Ident -> DeducedType
+getType :: TypeCheckerState -> Ident -> TypeInformation
 getType state identifier@(Ident string) =
 	let ret = Data.Map.lookup identifier (xxx state) in
 	case ret of
@@ -64,48 +60,59 @@ nextLocation e =
 	then 0
 	else (maximum (Data.Map.elems e)) + 1
 
-addType :: TypeCheckerState -> Ident -> DeducedType -> TypeCheckerState
+addType :: TypeCheckerState -> Ident -> Type -> TypeCheckerState
 addType state identifier type' = --TODO: what if one exists on this level
 	let new_location = (nextLocation (xxx state)) in
 	TypeCheckerState { xxx = (Data.Map.insert identifier new_location (xxx state)), yyy = (Data.Map.insert new_location type' (yyy state)) }
 
+typeOperationSame :: TypeInformation -> TypeInformation -> TypeInformation
+typeOperationSame type1 type2 =
+	if type1 == type2
+	then type1
+	else DeducedError ["type combo error add " ++ (show type1)]
 
-eval :: Expression -> Semantics DeducedType
+typeOperationToBoolean :: TypeInformation -> TypeInformation -> TypeInformation
+typeOperationToBoolean type1 type2 =
+	if type1 == type2
+	then DeducedType TBoolean
+	else DeducedError ["type combo error less " ++ (show type1)]
+
+typeStatement :: TypeInformation -> TypeInformation -> TypeInformation
+typeStatement DeducedNone type' = type'
+typeStatement type' DeducedNone = type'
+typeStatement (DeducedError m1) (DeducedError m2) = DeducedError (m1 ++ m2)
+typeStatement type1 type2  = (DeducedError ["TODO deduction"])
+
+eval :: Expression -> Semantics TypeInformation
 
 eval (EAssignment identifier expression) = do
-	return DeducedNone
+	return DeducedNone --TODO
 
 eval (ELess expression1 expression2) = do
-	eval expression1
+	type1 <- eval expression1
+	type2 <- eval expression2
+	return (typeOperationToBoolean type1 type2)
 
 eval (EAdd expression1 expression2) = do
-	eval expression1
+	type1 <- eval expression1
+	type2 <- eval expression2
+	return (typeOperationSame type1 type2)
 
 eval (ECall identifier args) = do
-	return (DeducedError [])
+	return (DeducedError []) --TODO check if function exists and if params fit args
 
 eval (EVariable identifier) = do
 	state <- Control.Monad.State.get
 	return (getType state identifier)
 
---eval (EBoolean boolean) = do
---	return DeducedBoolean
+eval (EBoolean boolean) = do
+	return (DeducedType TBoolean)
 
 eval (EInteger integer) = do
-	return DeducedInteger
+	return (DeducedType TInt)
 
---eval (EVar var) = do
---  Just loc <- asks (M.lookup var)
---  Just val <- gets (M.lookup loc)
---  return val
 
---evalExp :: Exp -> Int
---evalExp expr =
---  let readerStuff = eval expr in
---  let stateStuff = runReaderT readerStuff emptyEnv in
---  evalState stateStuff initialSt
-
-evalDeclaration :: Declaration -> Semantics DeducedType
+evalDeclaration :: Declaration -> Semantics TypeInformation
 evalDeclaration (Declaration type' identifier) = do
 --	Just newLoc <- gets (M.lookup 0)
 --	val <- eval expr
@@ -114,10 +121,10 @@ evalDeclaration (Declaration type' identifier) = do
 --	env <- ask
 --	return $ M.insert var newLoc env
 	state <- Control.Monad.State.get
-	Control.Monad.State.put (addType state identifier (deduceFromType type'))
+	Control.Monad.State.put (addType state identifier type')
 	return DeducedNone
 
-evalDeclarations :: [Declaration] -> Semantics DeducedType
+evalDeclarations :: [Declaration] -> Semantics TypeInformation
 evalDeclarations [] =
 	return DeducedNone
 evalDeclarations (x:xs) = do
@@ -125,14 +132,7 @@ evalDeclarations (x:xs) = do
 	evalDeclarations xs
 	return tmp
 
--- Dodatkowa zabawa, aby druga deklaracja z listy mogla juz uzywac pierwszej zmiennej
---evalDecls :: [Decl] -> Semantics Env
---evalDecls [] = ask
---evalDecls (decl:decls) = do
---  env' <- evalDecl decl
---  local (const env') (evalDecls decls)
-
-evalStatement :: Statement -> Semantics DeducedType
+evalStatement :: Statement -> Semantics TypeInformation
 evalStatement (SDeclaration declaration) = do
 	evalDeclaration declaration
 
@@ -142,21 +142,23 @@ evalStatement (SExpression expression) = do
 evalStatement (SBlock statements) = do
 	evalStatement (statements !! 0)
 
-evalFunction :: Function -> Semantics DeducedType
-evalFunction (Function type' identifier declarations statements) = do
-	--new_state <- evalDeclaration (declarations !! 0)
-	tmp <- evalDeclarations declarations
-	--Control.Monad.State.put new_state
-	--Control.Monad.State.modify (\x -> (addType x (Ident "ZLO") (DeducedError ["TEST KWAS"])))
-	case statements of
-		[] -> return DeducedNone
-		(x:xs) -> evalStatement x
-	--evalStatement x
+evalStatements :: [Statement] -> Semantics TypeInformation
+evalStatements [] =
+	return DeducedNone
+evalStatements (x:xs) = do
+	type1 <- evalStatement x
+	type2 <-evalStatements xs
+	return (typeStatement type1 type2)
 
-evalProgram :: Program -> Semantics DeducedType
+evalFunction :: Function -> Semantics TypeInformation
+evalFunction (Function type' identifier declarations statements) = do
+	tmp <- evalDeclarations declarations
+--	TODO: modify environment to include function declaration
+	evalStatements statements
+
+evalProgram :: Program -> Semantics TypeInformation
 evalProgram (Program functions) = do
 	evalFunction (functions !! 0)
-	return DeducedNone
 
 --interpret (SBlock decls stmts) = do
 --  env' <- evalDecls decls
@@ -167,7 +169,7 @@ evalProgram (Program functions) = do
 --  Just loc <-asks (M.lookup var)
 --  modify (M.insert loc val)
 
-checkAST :: Program -> (DeducedType, TypeCheckerState)
+checkAST :: Program -> (TypeInformation, TypeCheckerState)
 checkAST ast =
 	Control.Monad.State.runState (evalProgram ast) initialState
 
