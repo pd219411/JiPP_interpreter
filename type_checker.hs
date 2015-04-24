@@ -79,6 +79,14 @@ getFunction :: TypeCheckerState -> Ident -> Maybe FunctionTypeInformation
 getFunction state identifier =
 	Data.Map.lookup identifier (functions state)
 
+stateAfterBlockLeft :: TypeCheckerState -> TypeCheckerState -> TypeCheckerState
+stateAfterBlockLeft state_on_enter state_on_leave =
+	TypeCheckerState {
+		functions = (functions state_on_leave),
+		variables = (variables state_on_enter),
+		locations = (locations state_on_enter)
+	}
+
 addVariable :: TypeCheckerState -> Ident -> Type -> TypeCheckerState
 addVariable state identifier type' = --TODO: what if one exists on this level
 	let new_location = (nextLocation (variables state)) in
@@ -115,38 +123,38 @@ genericListEval evaluator abstraction_list =
 			tail <- (genericListEval evaluator xs)
 			return ([head] ++ tail)
 
-eval :: Expression -> Semantics TypeInformation
+evalExpression :: Expression -> Semantics TypeInformation
 
-eval (EAssignment identifier expression) = do
+evalExpression (EAssignment identifier expression) = do
 	return DeducedNone --TODO
 
-eval (ELess expression1 expression2) = do
-	type1 <- eval expression1
-	type2 <- eval expression2
+evalExpression (ELess expression1 expression2) = do
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
 	return (typeOperationToBoolean type1 type2)
 
-eval (EAdd expression1 expression2) = do
-	type1 <- eval expression1
-	type2 <- eval expression2
+evalExpression (EAdd expression1 expression2) = do
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
 	return (typeOperationSame type1 type2)
 
-eval (ECall identifier@(Ident string) args) = do
+evalExpression (ECall identifier@(Ident string) args) = do
 	state <- Control.Monad.State.get
 	case (getFunction state identifier) of
 		Nothing -> return (DeducedError ["Unknown function identifier: " ++ string])
 		Just info -> do
-			types <- (genericListEval eval args)
+			types <- (genericListEval evalExpression args)
 			return (checkFunctionCall (snd info) types)
 			--return (DeducedError [(show types)])
 
-eval (EVariable identifier) = do
+evalExpression (EVariable identifier) = do
 	state <- Control.Monad.State.get
 	return (getType state identifier)
 
-eval (EBoolean boolean) = do
+evalExpression (EBoolean boolean) = do
 	return (DeducedType TBoolean)
 
-eval (EInteger integer) = do
+evalExpression (EInteger integer) = do
 	return (DeducedType TInt)
 
 
@@ -169,22 +177,23 @@ checkArgsList (x:xs) (y:ys) =
 		_ -> DeducedError ["Argument of unexpected type."]
 
 
-evalDeclaration :: Declaration -> Semantics TypeInformation
+evalDeclaration :: Declaration -> Semantics ()
 evalDeclaration (Declaration type' identifier) = do
 --	state <- Control.Monad.State.get
 --	Control.Monad.State.put (addVariable state identifier type')
 	Control.Monad.State.modify (\state -> addVariable state identifier type')
-	return (DeducedType type')
+	return ()
 
 evalStatement :: Statement -> Semantics TypeInformation
 evalStatement (SDeclaration declaration) = do
-	evalDeclaration declaration
+	_ <- evalDeclaration declaration
+	return DeducedNone
 
 evalStatement (SExpression expression) = do
-	eval expression
+	evalExpression expression
 
 evalStatement (SBlock statements) = do
-	evalStatement (statements !! 0)
+	evalStatements statements
 
 evalStatements :: [Statement] -> Semantics TypeInformation
 evalStatements [] =
@@ -199,10 +208,13 @@ typeFromDeclaration (Declaration type' identifier) = type'
 
 evalFunction :: Function -> Semantics TypeInformation
 evalFunction (Function type' identifier declarations statements) = do
-	tmp <- genericListEval evalDeclaration declarations
+	state_on_enter <- Control.Monad.State.get
+	_ <- genericListEval evalDeclaration declarations
 	Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
-	evalStatements statements
-	--TODO: clear declarations after use
+	temp <- evalStatements statements
+	state_on_leave <- Control.Monad.State.get
+	Control.Monad.State.put (stateAfterBlockLeft state_on_enter state_on_leave)
+	return temp
 
 evalProgram :: Program -> Semantics [TypeInformation]
 evalProgram (Program functions) = do
