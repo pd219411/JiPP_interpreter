@@ -10,6 +10,7 @@ import ErrM
 
 
 import qualified Data.Map
+import qualified Data.Maybe
 import qualified Control.Monad.State
 --------------------------------
 data TypeInformation =
@@ -24,7 +25,7 @@ deduceFromType type' = DeducedType type'
 type Location = Int
 type FunctionTypeInformation = (Type, [Type])
 type FunctionsEnvironment = Data.Map.Map Ident FunctionTypeInformation
-type VariablesEnvironment = Data.Map.Map Ident Location
+type VariablesEnvironment = [Data.Map.Map Ident Location]
 type LocationValues = Data.Map.Map Location Type
 
 data TypeCheckerState =
@@ -39,33 +40,17 @@ initialState :: TypeCheckerState
 initialState =
 	TypeCheckerState {
 		functions = Data.Map.empty,
-		variables = Data.Map.empty,
+		variables = [],
 		locations = Data.Map.empty
 	}
 
 type Semantics a = Control.Monad.State.State TypeCheckerState a
--- albo StateT St (Reader Env) a
--- albo Monada = ReaderT Env (StateT St Identity)
 
-getTypeFromLocation :: LocationValues -> Location -> TypeInformation
-getTypeFromLocation m l =
-	let ret = Data.Map.lookup l m in
-	case ret of
-		Nothing -> DeducedError ["Unknown location"]
-		Just v -> DeducedType v
-
-getType :: TypeCheckerState -> Ident -> TypeInformation
-getType state identifier@(Ident string) =
-	let ret = Data.Map.lookup identifier (variables state) in
-	case ret of
-		Nothing -> DeducedError ["Unknown identifier: " ++ string]
-		Just v -> getTypeFromLocation (locations state) v
-
-nextLocation :: VariablesEnvironment -> Location
+nextLocation :: LocationValues -> Location
 nextLocation e =
 	if Data.Map.null e
 	then 0
-	else (maximum (Data.Map.elems e)) + 1
+	else (maximum (Data.Map.keys e)) + 1
 
 addFunction :: TypeCheckerState -> Ident -> FunctionTypeInformation -> TypeCheckerState
 addFunction state identifier info = --let ret = Data.Map.lookup identifier (functions state) in
@@ -79,22 +64,72 @@ getFunction :: TypeCheckerState -> Ident -> Maybe FunctionTypeInformation
 getFunction state identifier =
 	Data.Map.lookup identifier (functions state)
 
-stateAfterBlockLeft :: TypeCheckerState -> TypeCheckerState -> TypeCheckerState
-stateAfterBlockLeft state_on_enter state_on_leave =
+addToVariablesEnvironment :: VariablesEnvironment -> Ident -> Location -> VariablesEnvironment
+addToVariablesEnvironment [] _ _ = error "Adding variable to empty environment stack"
+addToVariablesEnvironment variables@(x:xs) identifier location =
+	(Data.Map.insert identifier location x):xs
+
+allFromVariablesEnvironment :: VariablesEnvironment -> Ident -> Maybe Location
+allFromVariablesEnvironment variables@(x:xs) identifier =
+	let finder block n =
+		case (Data.Map.lookup identifier block) of
+			Nothing -> n
+			Just location -> Just location
+	in foldr (finder) Nothing variables
+
+topFromVariablesEnvironment :: VariablesEnvironment -> Ident -> Maybe Location
+topFromVariablesEnvironment variables@(block:xs) identifier =
+	(Data.Map.lookup identifier block)
+
+openBlock :: TypeCheckerState -> TypeCheckerState
+openBlock state =
 	TypeCheckerState {
-		functions = (functions state_on_leave),
-		variables = (variables state_on_enter),
-		locations = (locations state_on_enter)
+		functions = (functions state),
+		variables = (Data.Map.empty):(variables state),
+		locations = (locations state)
 	}
+
+leaveBlock :: TypeCheckerState -> TypeCheckerState
+leaveBlock state =
+	TypeCheckerState {
+		functions = (functions state),
+		variables = tail (variables state),
+		locations = (locations state)
+	}
+--stateAfterBlockLeft :: TypeCheckerState -> TypeCheckerState -> TypeCheckerState
+--stateAfterBlockLeft state_on_enter state_on_leave =
+--	TypeCheckerState {
+--		functions = (functions state_on_leave),
+--		variables = (variables state_on_enter),
+--		locations = (locations state_on_enter)
+--	}
 
 addVariable :: TypeCheckerState -> Ident -> Type -> TypeCheckerState
 addVariable state identifier type' = --TODO: what if one exists on this level
-	let new_location = (nextLocation (variables state)) in
+	let new_location = (nextLocation (locations state)) in
 	TypeCheckerState {
 		functions = (functions state),
-		variables = (Data.Map.insert identifier new_location (variables state)),
+		variables = (addToVariablesEnvironment (variables state) identifier new_location),
 		locations = (Data.Map.insert new_location type' (locations state))
 	}
+
+getTypeFromLocation :: LocationValues -> Location -> Type
+getTypeFromLocation locations location =
+	Data.Maybe.fromJust (Data.Map.lookup location locations)
+
+allVariable :: TypeCheckerState -> Ident -> Maybe Type
+allVariable state identifier =
+	let ret = allFromVariablesEnvironment (variables state) identifier in
+	case ret of
+		Nothing -> Nothing
+		Just location -> Just (getTypeFromLocation (locations state) location)
+
+topVariable :: TypeCheckerState -> Ident -> Maybe Type
+topVariable state identifier =
+	let ret = topFromVariablesEnvironment (variables state) identifier in
+	case ret of
+		Nothing -> Nothing
+		Just location -> Just (getTypeFromLocation (locations state) location)
 
 typeOperationSame :: TypeInformation -> TypeInformation -> TypeInformation
 typeOperationSame type1 type2 =
@@ -121,7 +156,7 @@ genericListEval evaluator abstraction_list =
 		(abstraction:xs) -> do
 			head <- (evaluator abstraction)
 			tail <- (genericListEval evaluator xs)
-			return ([head] ++ tail)
+			return (head:tail)
 
 evalExpression :: Expression -> Semantics TypeInformation
 
@@ -145,18 +180,18 @@ evalExpression (ECall identifier@(Ident string) args) = do
 		Just info -> do
 			types <- (genericListEval evalExpression args)
 			return (checkFunctionCall (snd info) types)
-			--return (DeducedError [(show types)])
 
-evalExpression (EVariable identifier) = do
+evalExpression (EVariable identifier@(Ident string)) = do
 	state <- Control.Monad.State.get
-	return (getType state identifier)
+	case (topVariable state identifier) of --TODO: check out blocks too
+		Nothing -> return (DeducedError ["Unknown identifier: " ++ string])
+		Just type' -> return (DeducedType type')
 
 evalExpression (EBoolean boolean) = do
 	return (DeducedType TBoolean)
 
 evalExpression (EInteger integer) = do
 	return (DeducedType TInt)
-
 
 checkFunctionCall :: [Type] -> [TypeInformation] -> TypeInformation
 checkFunctionCall declaration_info args_info =
@@ -177,12 +212,14 @@ checkArgsList (x:xs) (y:ys) =
 		_ -> DeducedError ["Argument of unexpected type."]
 
 
-evalDeclaration :: Declaration -> Semantics ()
-evalDeclaration (Declaration type' identifier) = do
---	state <- Control.Monad.State.get
---	Control.Monad.State.put (addVariable state identifier type')
-	Control.Monad.State.modify (\state -> addVariable state identifier type')
-	return ()
+evalDeclaration :: Declaration -> Semantics TypeInformation
+evalDeclaration (Declaration type' identifier@(Ident string)) = do
+	state <- Control.Monad.State.get
+	case (topVariable state identifier) of
+		Just _ -> return (DeducedError ["Redefinition of variable: " ++ string])
+		Nothing -> do
+			Control.Monad.State.modify (\state -> addVariable state identifier type')
+			return DeducedNone
 
 evalStatement :: Statement -> Semantics TypeInformation
 evalStatement (SDeclaration declaration) = do
@@ -206,21 +243,26 @@ evalStatements (x:xs) = do
 typeFromDeclaration :: Declaration -> Type
 typeFromDeclaration (Declaration type' identifier) = type'
 
-evalFunction :: Function -> Semantics TypeInformation
-evalFunction (Function type' identifier declarations statements) = do
+evalFunction :: Function -> Semantics [TypeInformation]
+evalFunction (Function type' identifier@(Ident string) declarations statements) = do
 	state_on_enter <- Control.Monad.State.get
-	_ <- genericListEval evalDeclaration declarations
-	Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
-	temp <- evalStatements statements
-	state_on_leave <- Control.Monad.State.get
-	Control.Monad.State.put (stateAfterBlockLeft state_on_enter state_on_leave)
-	return temp
+	case (getFunction state_on_enter identifier) of
+		Just info -> return [(DeducedError ["Redefinition of function: " ++ string])]
+		Nothing -> do
+			Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
+			Control.Monad.State.modify openBlock
+			temp1 <- genericListEval evalDeclaration declarations
+			temp2 <- evalStatements statements
+			--state_on_leave <- Control.Monad.State.get
+			--Control.Monad.State.put (stateAfterBlockLeft state_on_enter state_on_leave)
+			Control.Monad.State.modify leaveBlock
+			return (temp2:temp1) --TODO: check returns etc.
 
-evalProgram :: Program -> Semantics [TypeInformation]
+evalProgram :: Program -> Semantics [[TypeInformation]]
 evalProgram (Program functions) = do
 	genericListEval evalFunction functions
 
-checkAST :: Program -> ([TypeInformation], TypeCheckerState)
+checkAST :: Program -> ([[TypeInformation]], TypeCheckerState)
 checkAST ast =
 	Control.Monad.State.runState (evalProgram ast) initialState
 
