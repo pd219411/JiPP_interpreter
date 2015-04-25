@@ -164,9 +164,6 @@ genericListEval evaluator abstraction_list =
 
 interpretExpression :: Expression -> Semantics TypeInformation
 
-evalExpression (EAssignment identifier expression) = do
-	return DeducedNone --TODO
-
 evalExpression (ELess expression1 expression2) = do
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
@@ -224,6 +221,9 @@ evalDeclaration (Declaration type' identifier@(Ident string)) = do
 			Control.Monad.State.modify (\state -> addVariable state identifier type')
 			return DeducedNone
 		Just _ -> return (DeducedError ["Redefinition of variable: " ++ string])
+
+evalStatement (SAssignment identifier expression) = do
+	return DeducedNone --TODO
 
 evalStatement :: Statement -> Semantics TypeInformation
 evalStatement (SDeclaration declaration) = do

@@ -12,13 +12,14 @@ Declaration.  Declaration ::= Type Ident;
 
 -- separator  nonempty Ident "," ;
 
-SDeclaration.   Statement ::= Declaration;
-SExpression.    Statement ::= Expression;
-SBlock.  Statement ::= "{" [Statement] "}" ;
---SWhile.  Statement ::= "while" "(" Expression ")" Statement ;
+SAssignment. Statement  ::= Ident "=" Expression ;
+SDeclaration. Statement ::= Declaration;
+SExpression. Statement ::= Expression;
+SBlock. Statement ::= "{" [Statement] "}" ;
+--SWhile. Statement ::= "while" "(" Expression ")" Statement ;
 --SReturn. Statement ::= "return" Expression;
 
-EAssignment. Expression  ::= Ident "=" Expression ;
+--EAssignment. Expression  ::= Ident "=" Expression ;
 ELess. Expression1 ::= Expression2 "<" Expression2 ;
 EAdd.    Expression2 ::= Expression2 "+" Expression3 ;
 --ESub.    Expression2 ::= Expression2 "-" Expression3 ;

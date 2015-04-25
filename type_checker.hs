@@ -8,7 +8,7 @@ import AbsCredo
 
 import ErrM
 
-import Interpreter
+--import Interpreter
 
 
 import Debug.Trace
@@ -160,9 +160,6 @@ genericListEval evaluator abstraction_list =
 
 evalExpression :: Expression -> Semantics TypeInformation
 
-evalExpression (EAssignment identifier expression) = do
-	return DeducedNone --TODO
-
 evalExpression (ELess expression1 expression2) = do
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
@@ -207,9 +204,9 @@ checkArgsList (x:xs) (y:ys) =
 	case y of
 		(DeducedType type') ->
 			if type' /= x
-			then DeducedError ["Argument type mismatch."]
+			then DeducedError ["Argument type mismatch"]
 			else checkArgsList xs ys
-		_ -> DeducedError ["Argument of unexpected type."]
+		_ -> DeducedError ["Argument of unexpected type"]
 
 
 evalDeclaration :: Declaration -> Semantics TypeInformation
@@ -222,6 +219,19 @@ evalDeclaration (Declaration type' identifier@(Ident string)) = do
 		Just _ -> return (DeducedError ["Redefinition of variable: " ++ string])
 
 evalStatement :: Statement -> Semantics TypeInformation
+
+evalStatement (SAssignment identifier@(Ident string) expression) = do
+	state <- Control.Monad.State.get
+	case (allVariable state identifier) of
+		Nothing -> return (DeducedError ["Unknown identifier: " ++ string])
+		Just variable_type -> do
+			expression_info <- evalExpression expression
+			case expression_info of
+				DeducedType expression_type -> if variable_type == expression_type
+					then return DeducedNone
+					else return (DeducedError ["Assignment type mismatch: " ++ (show variable_type) ++ " = " ++ (show expression_type)])
+				_ -> return expression_info
+
 evalStatement (SDeclaration declaration) = do
 	evalDeclaration declaration
 
