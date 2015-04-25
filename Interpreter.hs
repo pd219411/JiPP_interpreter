@@ -23,8 +23,9 @@ import qualified Control.Monad.State
 	--deriving (Eq,Ord,Show)
 
 data RuntimeValue =
-	RuntimeInteger Int |
+	RuntimeInteger Integer |
 	RuntimeBoolean Bool
+	deriving (Eq,Ord,Show)
 
 convertBooleanToHaskell :: Boolean -> Bool
 convertBooleanToHaskell boolean =
@@ -88,13 +89,13 @@ type Runtime a = Control.Monad.State.State InterpreterState a
 			--Just location -> Just location
 	--in foldr (finder) Nothing variables
 
-getLocationFromEnvironment :: VariablesEnvironment -> Ident -> Maybe Location
+getLocationFromEnvironment :: VariablesEnvironment -> Ident -> Location
 getLocationFromEnvironment variables@(x:xs) identifier =
 	let finder block n =
 		case (Data.Map.lookup identifier block) of
 			Nothing -> n
 			Just location -> Just location
-	in foldr (finder) Nothing variables
+	in Data.Maybe.fromJust (foldr (finder) Nothing variables)
 
 --topFromVariablesEnvironment :: VariablesEnvironment -> Ident -> Maybe Location
 --topFromVariablesEnvironment variables@(block:xs) identifier =
@@ -129,18 +130,18 @@ getValueFromLocation :: LocationValues -> Location -> RuntimeValue
 getValueFromLocation locations location =
 	Data.Maybe.fromJust (Data.Map.lookup location locations)
 
-getValue :: Runtime -> Ident -> RuntimeValue
+getValue :: InterpreterState -> Ident -> RuntimeValue
 getValue state identifier =
 	let location = getLocationFromEnvironment (variables state) identifier in
-	getValueFromLocation location (locations state)
+	getValueFromLocation (locations state) location
 
-setValue :: Runtime -> Ident -> RuntimeValue -> Runtime
-setValue runtime identifier value =
-	let location = getLocationFromEnvironment (variables runtime) identifier in
+setValue :: InterpreterState -> Ident -> RuntimeValue -> InterpreterState
+setValue state identifier value =
+	let location = getLocationFromEnvironment (variables state) identifier in
 	InterpreterState {
-		functions = (functions runtime),
-		variables = (variables runtime),
-		locations = (Data.Map.insert location value (locations runtime))
+		functions = (functions state),
+		variables = (variables state),
+		locations = (Data.Map.insert location value (locations state))
 	}
 
 --allVariable :: TypeCheckerState -> Ident -> Maybe Type
@@ -175,14 +176,15 @@ setValue runtime identifier value =
 --typeStatement (DeducedError m1) (DeducedError m2) = DeducedError (m1 ++ m2)
 --typeStatement type1 type2  = (DeducedError ["TODO deduction"])
 
---genericListEval :: (a -> Semantics e) -> [a] -> Semantics [e]
---genericListEval evaluator abstraction_list =
-		--case abstraction_list of
-		--[] -> return []
-		--(abstraction:xs) -> do
-			--head <- (evaluator abstraction)
-			--tail <- (genericListEval evaluator xs)
-			--return (head:tail)
+--TODO: the same thing as in type_checker
+genericListEval :: (a -> Runtime e) -> [a] -> Runtime [e]
+genericListEval evaluator abstraction_list =
+		case abstraction_list of
+		[] -> return []
+		(abstraction:xs) -> do
+			head <- (evaluator abstraction)
+			tail <- (genericListEval evaluator xs)
+			return (head:tail)
 
 ---------------------------------------
 
@@ -191,14 +193,14 @@ interpretExpression :: Expression -> Runtime RuntimeValue
 interpretExpression (ELess expression1 expression2) = do
 	RuntimeInteger value1 <- interpretExpression expression1
 	RuntimeInteger value2 <- interpretExpression expression2
-	return (RuntimeBoolean value1 < value2)
+	return (RuntimeBoolean (value1 < value2))
 
 interpretExpression (EAdd expression1 expression2) = do
 	RuntimeInteger value1 <- interpretExpression expression1
 	RuntimeInteger value2 <- interpretExpression expression2
-	return (RuntimeInteger value1 + value2)
+	return (RuntimeInteger (value1 + value2))
 
-interpretExpression (ECall identifier@(Ident string) args) = do
+interpretExpression (ECall identifier args) = do
 	return (RuntimeInteger 500)
 	--TODO: interpret structure containing function code
 	--state <- Control.Monad.State.get
@@ -213,7 +215,7 @@ interpretExpression (EVariable identifier) = do
 	return (getValue state identifier)
 
 interpretExpression (EBoolean boolean) = do
-	return (RuntimeBoolean convertBooleanToHaskell boolean)
+	return (RuntimeBoolean (convertBooleanToHaskell boolean))
 
 interpretExpression (EInteger integer) = do
 	return (RuntimeInteger integer)
@@ -258,45 +260,48 @@ interpretStatement (SDeclaration declaration) = do
 
 interpretStatement (SExpression expression) = do
 	interpretExpression expression
+	return ()
 
 interpretStatement (SBlock statements) = do
 	Control.Monad.State.modify openBlock
-	temp <- interpretStatements statements
+	--TODO: we dont have statements interpreter yet
+	--temp <- interpretStatements statements
 	--genericListEval interpretStatement statements
 	Control.Monad.State.modify leaveBlock
-	return temp
+	--return temp
 
-interpretStatements :: [Statement] -> Semantics TypeInformation
-interpretStatements [] =
-	return DeducedNone
-interpretStatements (x:xs) = do
-	type1 <- interpretStatement x
-	type2 <- interpretStatements xs
-	return (typeStatement type1 type2)
+--TODO: what is the result (none or return?)
+--interpretStatements :: [Statement] -> Runtime TypeInformation
+--interpretStatements [] =
+	--return DeducedNone
+--interpretStatements (x:xs) = do
+	--type1 <- interpretStatement x
+	--type2 <- interpretStatements xs
+	--return (typeStatement type1 type2)
 
-typeFromDeclaration :: Declaration -> Type
-typeFromDeclaration (Declaration type' identifier) = type'
+--typeFromDeclaration :: Declaration -> Type
+--typeFromDeclaration (Declaration type' identifier) = type'
 
-evalFunction :: Function -> Semantics [TypeInformation]
-evalFunction (Function type' identifier@(Ident string) declarations statements) = do
-	state_on_enter <- Control.Monad.State.get
-	case (getFunction state_on_enter identifier) of
-		Just info -> return [(DeducedError ["Redefinition of function: " ++ string])]
-		Nothing -> do
-			Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
-			Control.Monad.State.modify openBlock
-			temp1 <- genericListEval evalDeclaration declarations
-			temp2 <- genericListEval interpretStatement statements
-			Control.Monad.State.modify leaveBlock
-			return (temp1 ++ temp2) --TODO: check returns etc.
+--interpretFunction :: Function -> Runtime [TypeInformation]
+--interpretFunction (Function type' identifier@(Ident string) declarations statements) = do
+	--state_on_enter <- Control.Monad.State.get
+	--case (getFunction state_on_enter identifier) of
+		--Just info -> return [(DeducedError ["Redefinition of function: " ++ string])]
+		--Nothing -> do
+			--Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
+			--Control.Monad.State.modify openBlock
+			--temp1 <- genericListEval evalDeclaration declarations
+			--temp2 <- genericListEval interpretStatement statements
+			--Control.Monad.State.modify leaveBlock
+			--return (temp1 ++ temp2) --TODO: check returns etc.
 
-evalProgram :: Program -> Semantics [[TypeInformation]]
-evalProgram (Program functions) = do
-	genericListEval evalFunction functions
+--evalProgram :: Program -> Semantics [[TypeInformation]]
+--evalProgram (Program functions) = do
+	--genericListEval evalFunction functions
 
-checkAST :: Program -> ([[TypeInformation]], TypeCheckerState)
-checkAST ast =
-	Control.Monad.State.runState (evalProgram ast) initialState
+--checkAST :: Program -> ([[TypeInformation]], TypeCheckerState)
+--checkAST ast =
+	--Control.Monad.State.runState (evalProgram ast) initialState
 
 interpret :: Program -> ()
 interpret _ = ()
