@@ -9,6 +9,7 @@ import AbsCredo
 import ErrM
 
 
+import Debug.Trace
 import qualified Data.Map
 import qualified Data.Maybe
 import qualified Control.Monad.State
@@ -18,9 +19,6 @@ data TypeInformation =
 	DeducedError [String] |
 	DeducedType Type
 	deriving (Eq,Ord,Show)
-
-deduceFromType :: Type -> TypeInformation
-deduceFromType type' = DeducedType type'
 
 type Location = Int
 type FunctionTypeInformation = (Type, [Type])
@@ -216,28 +214,29 @@ evalDeclaration :: Declaration -> Semantics TypeInformation
 evalDeclaration (Declaration type' identifier@(Ident string)) = do
 	state <- Control.Monad.State.get
 	case (topVariable state identifier) of
-		Just _ -> return (DeducedError ["Redefinition of variable: " ++ string])
 		Nothing -> do
 			Control.Monad.State.modify (\state -> addVariable state identifier type')
 			return DeducedNone
+		Just _ -> return (DeducedError ["Redefinition of variable: " ++ string])
 
 evalStatement :: Statement -> Semantics TypeInformation
 evalStatement (SDeclaration declaration) = do
-	_ <- evalDeclaration declaration
-	return DeducedNone
+	evalDeclaration declaration
 
 evalStatement (SExpression expression) = do
 	evalExpression expression
 
 evalStatement (SBlock statements) = do
+	--TODO: open new scope
 	evalStatements statements
+	--genericListEval evalStatement statements
 
 evalStatements :: [Statement] -> Semantics TypeInformation
 evalStatements [] =
 	return DeducedNone
 evalStatements (x:xs) = do
 	type1 <- evalStatement x
-	type2 <-evalStatements xs
+	type2 <- evalStatements xs
 	return (typeStatement type1 type2)
 
 typeFromDeclaration :: Declaration -> Type
@@ -252,11 +251,12 @@ evalFunction (Function type' identifier@(Ident string) declarations statements) 
 			Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
 			Control.Monad.State.modify openBlock
 			temp1 <- genericListEval evalDeclaration declarations
-			temp2 <- evalStatements statements
+			--temp2 <- evalStatements statements
+			temp2 <- genericListEval evalStatement statements
 			--state_on_leave <- Control.Monad.State.get
 			--Control.Monad.State.put (stateAfterBlockLeft state_on_enter state_on_leave)
 			Control.Monad.State.modify leaveBlock
-			return (temp2:temp1) --TODO: check returns etc.
+			return (temp1 ++ temp2) --TODO: check returns etc.
 
 evalProgram :: Program -> Semantics [[TypeInformation]]
 evalProgram (Program functions) = do
