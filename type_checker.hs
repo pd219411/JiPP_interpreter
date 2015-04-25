@@ -8,6 +8,8 @@ import AbsCredo
 
 import ErrM
 
+import Interpreter
+
 
 import Debug.Trace
 import qualified Data.Map
@@ -227,9 +229,11 @@ evalStatement (SExpression expression) = do
 	evalExpression expression
 
 evalStatement (SBlock statements) = do
-	--TODO: open new scope
-	evalStatements statements
+	Control.Monad.State.modify openBlock
+	temp <- evalStatements statements
 	--genericListEval evalStatement statements
+	Control.Monad.State.modify leaveBlock
+	return temp
 
 evalStatements :: [Statement] -> Semantics TypeInformation
 evalStatements [] =
@@ -251,10 +255,7 @@ evalFunction (Function type' identifier@(Ident string) declarations statements) 
 			Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
 			Control.Monad.State.modify openBlock
 			temp1 <- genericListEval evalDeclaration declarations
-			--temp2 <- evalStatements statements
 			temp2 <- genericListEval evalStatement statements
-			--state_on_leave <- Control.Monad.State.get
-			--Control.Monad.State.put (stateAfterBlockLeft state_on_enter state_on_leave)
 			Control.Monad.State.modify leaveBlock
 			return (temp1 ++ temp2) --TODO: check returns etc.
 
