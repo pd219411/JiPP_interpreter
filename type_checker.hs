@@ -209,14 +209,22 @@ checkArgsList (x:xs) (y:ys) =
 		_ -> DeducedError ["Argument of unexpected type"]
 
 
-evalDeclaration :: Declaration -> Semantics TypeInformation
-evalDeclaration (Declaration type' identifier@(Ident string)) = do
+declareHelper :: Type -> Ident -> Semantics TypeInformation
+declareHelper type' identifier@(Ident string) = do
 	state <- Control.Monad.State.get
 	case (topVariable state identifier) of
 		Nothing -> do
 			Control.Monad.State.modify (\state -> addVariable state identifier type')
 			return DeducedNone
 		Just _ -> return (DeducedError ["Redefinition of variable: " ++ string])
+
+evalArgumentDeclaration :: ArgumentDeclaration -> Semantics TypeInformation
+evalArgumentDeclaration (ArgumentDeclaration type' identifier) =
+	declareHelper type' identifier
+
+evalVariableDeclaration :: VariableDeclaration -> Semantics TypeInformation
+evalVariableDeclaration (VariableDeclaration type' identifier) =
+	declareHelper type' identifier
 
 evalStatement :: Statement -> Semantics TypeInformation
 
@@ -233,7 +241,7 @@ evalStatement (SAssignment identifier@(Ident string) expression) = do
 				_ -> return expression_info
 
 evalStatement (SDeclaration declaration) = do
-	evalDeclaration declaration
+	evalVariableDeclaration declaration
 
 evalStatement (SExpression expression) = do
 	evalExpression expression
@@ -253,8 +261,8 @@ evalStatements (x:xs) = do
 	type2 <- evalStatements xs
 	return (typeStatement type1 type2)
 
-typeFromDeclaration :: Declaration -> Type
-typeFromDeclaration (Declaration type' identifier) = type'
+typeFromDeclaration :: ArgumentDeclaration -> Type
+typeFromDeclaration (ArgumentDeclaration type' identifier) = type'
 
 evalFunction :: Function -> Semantics [TypeInformation]
 evalFunction (Function type' identifier@(Ident string) declarations statements) = do
@@ -264,7 +272,7 @@ evalFunction (Function type' identifier@(Ident string) declarations statements) 
 		Nothing -> do
 			Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
 			Control.Monad.State.modify openBlock
-			temp1 <- genericListEval evalDeclaration declarations
+			temp1 <- genericListEval evalArgumentDeclaration declarations
 			temp2 <- genericListEval evalStatement statements
 			Control.Monad.State.modify leaveBlock
 			return (temp1 ++ temp2) --TODO: check returns etc.

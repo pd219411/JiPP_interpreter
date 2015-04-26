@@ -201,6 +201,10 @@ interpretExpression (EAdd expression1 expression2) = do
 	return (RuntimeInteger (value1 + value2))
 
 interpretExpression (ECall identifier args) = do
+	arg_values <- genericListEval interpretExpression args
+	--find function in functions environment
+	--interpret function body
+
 	return (RuntimeInteger 500)
 	--TODO: interpret structure containing function code
 	--state <- Control.Monad.State.get
@@ -282,7 +286,15 @@ interpretStatement (SBlock statements) = do
 --typeFromDeclaration :: Declaration -> Type
 --typeFromDeclaration (Declaration type' identifier) = type'
 
---interpretFunction :: Function -> Runtime [TypeInformation]
+interpretFunction :: Function -> [RuntimeValue] -> Runtime RuntimeValue
+interpretFunction (Function type' identifier declarations statements) arguments = do
+	Control.Monad.State.modify openBlock
+	--substitute arg_values for values in args declarations
+	--interpret
+	Control.Monad.State.modify leaveBlock
+	--return computed value from statements
+	return (RuntimeInteger 1000)
+
 --interpretFunction (Function type' identifier@(Ident string) declarations statements) = do
 	--state_on_enter <- Control.Monad.State.get
 	--case (getFunction state_on_enter identifier) of

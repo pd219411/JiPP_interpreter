@@ -4,16 +4,17 @@ comment "/*" "*/" ;
 Program. Program ::= [Function];
 terminator Function "";
 
-Function.  Function ::= Type Ident "(" [Declaration] ")" "{" [Statement] "}";
-separator  Declaration ",";
+Function.  Function ::= Type Ident "(" [ArgumentDeclaration] ")" "{" [Statement] "}";
+separator  ArgumentDeclaration ",";
 terminator Statement ";";
 
-Declaration.  Declaration ::= Type Ident;
+ArgumentDeclaration.  ArgumentDeclaration ::= Type Ident;
 
 -- separator  nonempty Ident "," ;
+VariableDeclaration.  VariableDeclaration ::= Type Ident;
 
 SAssignment. Statement  ::= Ident "=" Expression ;
-SDeclaration. Statement ::= Declaration;
+SDeclaration. Statement ::= VariableDeclaration;
 SExpression. Statement ::= Expression;
 SBlock. Statement ::= "{" [Statement] "}" ;
 --SWhile. Statement ::= "while" "(" Expression ")" Statement ;
