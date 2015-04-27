@@ -58,11 +58,12 @@ initialState =
 type Runtime a = Control.Monad.State.State InterpreterState a
 
 
---nextLocation :: LocationValues -> Location
---nextLocation e =
-	--if Data.Map.null e
-	--then 0
-	--else (maximum (Data.Map.keys e)) + 1
+--TODO: copy paste from type chceker
+nextLocation :: LocationValues -> Location
+nextLocation e =
+	if Data.Map.null e
+	then 0
+	else (maximum (Data.Map.keys e)) + 1
 
 --addFunction :: TypeCheckerState -> Ident -> FunctionTypeInformation -> TypeCheckerState
 --addFunction state identifier info = --let ret = Data.Map.lookup identifier (functions state) in
@@ -80,6 +81,10 @@ type Runtime a = Control.Monad.State.State InterpreterState a
 --addToVariablesEnvironment [] _ _ = error "Adding variable to empty environment stack"
 --addToVariablesEnvironment variables@(x:xs) identifier location =
 	--(Data.Map.insert identifier location x):xs
+
+addLocationToEnvironment :: VariablesEnvironment -> Ident -> Location -> VariablesEnvironment
+addLocationToEnvironment variables@(x:xs) identifier location =
+	(Data.Map.insert identifier location x):xs
 
 --allFromVariablesEnvironment :: VariablesEnvironment -> Ident -> Maybe Location
 --allFromVariablesEnvironment variables@(x:xs) identifier =
@@ -117,13 +122,21 @@ leaveBlock state =
 		locations = (locations state)
 	}
 
---addVariable :: TypeCheckerState -> Ident -> Type -> TypeCheckerState
---addVariable state identifier type' = --TODO: what if one exists on this level
-	--let new_location = (nextLocation (locations state)) in
-	--TypeCheckerState {
+addVariable :: InterpreterState -> Ident -> RuntimeValue -> InterpreterState
+addVariable state identifier value = --TODO: what if one exists on this level
+	let new_location = (nextLocation (locations state)) in
+	InterpreterState {
+		functions = (functions state),
+		variables = (addLocationToEnvironment (variables state) identifier new_location),
+		locations = (Data.Map.insert new_location value (locations state))
+	}
+
+--addIdentifier :: InterpreterState -> Ident -> InterpreterState
+--addIdentifier state identifier =
+	--InterpreterState {
 		--functions = (functions state),
-		--variables = (addToVariablesEnvironment (variables state) identifier new_location),
-		--locations = (Data.Map.insert new_location type' (locations state))
+		--variables = (variables state),
+		--locations = (Data.Map.insert location value (locations state))
 	--}
 
 getValueFromLocation :: LocationValues -> Location -> RuntimeValue
@@ -184,6 +197,15 @@ genericListEval evaluator abstraction_list =
 		(abstraction:xs) -> do
 			head <- (evaluator abstraction)
 			tail <- (genericListEval evaluator xs)
+			return (head:tail)
+
+genericListEvalWithParam :: (a -> b -> Runtime e) -> [a] -> [b] -> Runtime [e]
+genericListEvalWithParam evaluator abstraction_list_1 abstraction_list_2@(abstraction_2:ys) =
+		case abstraction_list_1 of
+		[] -> return []
+		(abstraction_1:xs) -> do
+			head <- (evaluator abstraction_1 abstraction_2)
+			tail <- (genericListEvalWithParam evaluator xs ys)
 			return (head:tail)
 
 ---------------------------------------
@@ -286,30 +308,26 @@ interpretStatement (SBlock statements) = do
 --typeFromDeclaration :: Declaration -> Type
 --typeFromDeclaration (Declaration type' identifier) = type'
 
+interpretArgumentDeclaration :: ArgumentDeclaration -> RuntimeValue -> Runtime ()
+interpretArgumentDeclaration (ArgumentDeclaration type' identifier) value =
+	Control.Monad.State.modify (\state -> addVariable state identifier value)
+
+
 interpretFunction :: Function -> [RuntimeValue] -> Runtime RuntimeValue
 interpretFunction (Function type' identifier declarations statements) arguments = do
 	Control.Monad.State.modify openBlock
-	--substitute arg_values for values in args declarations
+	genericListEvalWithParam interpretArgumentDeclaration declarations arguments
 	--interpret
+	value <- interpretStatement (statements !! 0)
 	Control.Monad.State.modify leaveBlock
 	--return computed value from statements
 	return (RuntimeInteger 1000)
 
---interpretFunction (Function type' identifier@(Ident string) declarations statements) = do
-	--state_on_enter <- Control.Monad.State.get
-	--case (getFunction state_on_enter identifier) of
-		--Just info -> return [(DeducedError ["Redefinition of function: " ++ string])]
-		--Nothing -> do
-			--Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
-			--Control.Monad.State.modify openBlock
-			--temp1 <- genericListEval evalDeclaration declarations
-			--temp2 <- genericListEval interpretStatement statements
-			--Control.Monad.State.modify leaveBlock
-			--return (temp1 ++ temp2) --TODO: check returns etc.
 
---evalProgram :: Program -> Semantics [[TypeInformation]]
---evalProgram (Program functions) = do
-	--genericListEval evalFunction functions
+--interpretProgram :: Program -> Runtime RuntimeValue
+--interpretProgram (Program functions) = do
+	----TODO: it is the same thing as running main() without params
+	--genericListEval interpretFunction functions
 
 --checkAST :: Program -> ([[TypeInformation]], TypeCheckerState)
 --checkAST ast =

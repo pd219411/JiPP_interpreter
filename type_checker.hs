@@ -279,16 +279,20 @@ evalFunction (Function type' identifier@(Ident string) declarations statements) 
 
 evalProgram :: Program -> Semantics [[TypeInformation]]
 evalProgram (Program functions) = do
+	--TODO: check if program contains function main()
 	genericListEval evalFunction functions
 
 checkAST :: Program -> ([[TypeInformation]], TypeCheckerState)
 checkAST ast =
 	Control.Monad.State.runState (evalProgram ast) initialState
 
---execStmt :: Stmt -> IO ()
---execStmt stmt = do
---  let ((), finalState) =  runState (runReaderT (interpret stmt) emptyEnv) initialSt
---  print finalState
+
+generateFunctionsMap :: Program -> Data.Map.Map Ident Function
+generateFunctionsMap (Program functions) =
+	let add_to_map map function@(Function type' identifier declarations statements) =
+		Data.Map.insert identifier function map
+	in foldl (add_to_map) Data.Map.empty functions
+
 ---------------------------------
 
 type ParseFunction a = [Token] -> Err a
@@ -307,4 +311,7 @@ main = do
 			print "Parse Failed"
 			print s
 		Ok tree -> do
-			print $ checkAST tree
+			print (checkAST tree)
+			print "================ FUNCTIONS:"
+			print (generateFunctionsMap tree)
+			--if no errors interpret
