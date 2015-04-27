@@ -16,11 +16,6 @@ import qualified Data.Map
 import qualified Data.Maybe
 import qualified Control.Monad.State
 --------------------------------
---data TypeInformation =
-	--DeducedNone |
-	--DeducedError [String] |
-	--DeducedType Type
-	--deriving (Eq,Ord,Show)
 
 data RuntimeValue =
 	RuntimeInteger Integer |
@@ -34,8 +29,8 @@ convertBooleanToHaskell boolean =
 		ValueTrue -> True
 
 type Location = Int
-type FunctionTypeInformation = (Type, [Type]) --TODO: informations needed to call this
-type FunctionsEnvironment = Data.Map.Map Ident FunctionTypeInformation
+type FunctionRuntimeInformation = Function
+type FunctionsEnvironment = Data.Map.Map Ident FunctionRuntimeInformation
 type VariablesEnvironment = [Data.Map.Map Ident Location]
 type LocationValues = Data.Map.Map Location RuntimeValue
 
@@ -47,10 +42,10 @@ data InterpreterState =
 	}
 	deriving (Eq,Ord,Show)
 
-initialState :: InterpreterState
-initialState =
+initialState :: FunctionsEnvironment -> InterpreterState
+initialState functions_environment =
 	InterpreterState {
-		functions = Data.Map.empty,
+		functions = functions_environment,
 		variables = [],
 		locations = Data.Map.empty
 	}
@@ -73,9 +68,9 @@ nextLocation e =
 		--locations = (locations state)
 	--}
 
---getFunction :: TypeCheckerState -> Ident -> Maybe FunctionTypeInformation
---getFunction state identifier =
-	--Data.Map.lookup identifier (functions state)
+getFunction :: InterpreterState -> Ident -> FunctionRuntimeInformation
+getFunction state identifier =
+	Data.Maybe.fromJust (Data.Map.lookup identifier (functions state))
 
 --addToVariablesEnvironment :: VariablesEnvironment -> Ident -> Location -> VariablesEnvironment
 --addToVariablesEnvironment [] _ _ = error "Adding variable to empty environment stack"
@@ -224,17 +219,8 @@ interpretExpression (EAdd expression1 expression2) = do
 
 interpretExpression (ECall identifier args) = do
 	arg_values <- genericListEval interpretExpression args
-	--find function in functions environment
-	--interpret function body
-
-	return (RuntimeInteger 500)
-	--TODO: interpret structure containing function code
-	--state <- Control.Monad.State.get
-	--case (getFunction state identifier) of
-		--Nothing -> return (DeducedError ["Unknown function identifier: " ++ string])
-		--Just info -> do
-			--types <- (genericListEval evalExpression args)
-			--return (checkFunctionCall (snd info) types)
+	state <- Control.Monad.State.get
+	interpretFunction (getFunction state identifier) arg_values
 
 interpretExpression (EVariable identifier) = do
 	state <- Control.Monad.State.get
@@ -333,5 +319,17 @@ interpretFunction (Function type' identifier declarations statements) arguments 
 --checkAST ast =
 	--Control.Monad.State.runState (evalProgram ast) initialState
 
-interpret :: Program -> ()
-interpret _ = ()
+interpretProgram :: Program -> Runtime RuntimeValue
+interpretProgram (Program functions) = do
+	interpretExpression (ECall (Ident "main") [])
+
+generateFunctionsMap :: Program -> Data.Map.Map Ident Function
+generateFunctionsMap (Program functions) =
+	let add_to_map map function@(Function type' identifier declarations statements) =
+		Data.Map.insert identifier function map
+	in foldl (add_to_map) Data.Map.empty functions
+
+interpret :: Program -> RuntimeValue
+interpret program =
+	let (ret, state) = (Control.Monad.State.runState (interpretProgram program) (initialState (generateFunctionsMap program))) in
+	ret

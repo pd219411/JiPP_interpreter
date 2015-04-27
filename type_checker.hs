@@ -287,12 +287,6 @@ checkAST ast =
 	Control.Monad.State.runState (evalProgram ast) initialState
 
 
-generateFunctionsMap :: Program -> Data.Map.Map Ident Function
-generateFunctionsMap (Program functions) =
-	let add_to_map map function@(Function type' identifier declarations statements) =
-		Data.Map.insert identifier function map
-	in foldl (add_to_map) Data.Map.empty functions
-
 ---------------------------------
 
 type ParseFunction a = [Token] -> Err a
@@ -312,6 +306,6 @@ main = do
 			print s
 		Ok tree -> do
 			print (checkAST tree)
-			print "================ FUNCTIONS:"
-			print (generateFunctionsMap tree)
+			print "=============== LETS DO THIS:"
+			print (interpret tree)
 			--if no errors interpret
