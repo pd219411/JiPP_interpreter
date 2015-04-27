@@ -51,6 +51,7 @@ initialState functions_environment =
 	}
 
 type Runtime a = Control.Monad.State.State InterpreterState a
+--type Runtime a = (Control.Monad.State.StateT InterpreterState IO) a
 
 
 --TODO: copy paste from type chceker
@@ -282,6 +283,11 @@ interpretStatement (SBlock statements) = do
 	Control.Monad.State.modify leaveBlock
 	--return temp
 
+interpretStatement (SReturn expression) = do
+	value <- interpretExpression expression
+	--return value
+	return ()
+
 --TODO: what is the result (none or return?)
 --interpretStatements :: [Statement] -> Runtime TypeInformation
 --interpretStatements [] =
@@ -301,6 +307,7 @@ interpretArgumentDeclaration (ArgumentDeclaration type' identifier) value =
 
 interpretFunction :: Function -> [RuntimeValue] -> Runtime RuntimeValue
 interpretFunction (Function type' identifier declarations statements) arguments = do
+	--Control.Monad.State.liftIO (print $ "Funkcja " ++ (show identifier))
 	Control.Monad.State.modify openBlock
 	genericListEvalWithParam interpretArgumentDeclaration declarations arguments
 	--interpret
@@ -328,6 +335,7 @@ generateFunctionsMap (Program functions) =
 	let add_to_map map function@(Function type' identifier declarations statements) =
 		Data.Map.insert identifier function map
 	in foldl (add_to_map) Data.Map.empty functions
+
 
 interpret :: Program -> RuntimeValue
 interpret program =

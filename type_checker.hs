@@ -19,7 +19,8 @@ import qualified Control.Monad.State
 data TypeInformation =
 	DeducedNone |
 	DeducedError [String] |
-	DeducedType Type
+	DeducedType Type |
+	DeducedReturn Type
 	deriving (Eq,Ord,Show)
 
 type Location = Int
@@ -253,6 +254,12 @@ evalStatement (SBlock statements) = do
 	Control.Monad.State.modify leaveBlock
 	return temp
 
+evalStatement (SReturn expression) = do
+	expression_info <- evalExpression expression
+	case expression_info of
+		DeducedType expression_type -> return (DeducedReturn expression_type)
+		_ -> return expression_info
+
 evalStatements :: [Statement] -> Semantics TypeInformation
 evalStatements [] =
 	return DeducedNone
@@ -308,4 +315,5 @@ main = do
 			print (checkAST tree)
 			print "=============== LETS DO THIS:"
 			print (interpret tree)
-			--if no errors interpret
+			--vartemp <- (interpret tree)
+			--print vartemp

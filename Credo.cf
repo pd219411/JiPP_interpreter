@@ -18,7 +18,7 @@ SDeclaration. Statement ::= VariableDeclaration;
 SExpression. Statement ::= Expression;
 SBlock. Statement ::= "{" [Statement] "}" ;
 --SWhile. Statement ::= "while" "(" Expression ")" Statement ;
---SReturn. Statement ::= "return" Expression;
+SReturn. Statement ::= "return" Expression;
 
 --EAssignment. Expression  ::= Ident "=" Expression ;
 ELess. Expression1 ::= Expression2 "<" Expression2 ;
