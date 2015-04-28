@@ -18,6 +18,7 @@ import qualified Control.Monad.State
 --------------------------------
 
 data RuntimeValue =
+	RuntimeNone |
 	RuntimeInteger Integer |
 	RuntimeBoolean Bool
 	deriving (Eq,Ord,Show)
@@ -96,7 +97,7 @@ getLocationFromEnvironment variables@(x:xs) identifier =
 		case (Data.Map.lookup identifier block) of
 			Nothing -> n
 			Just location -> Just location
-	in Data.Maybe.fromJust (foldr (finder) Nothing variables)
+	in (Data.Maybe.fromJust (foldr (finder) Nothing variables))
 
 --topFromVariablesEnvironment :: VariablesEnvironment -> Ident -> Maybe Location
 --topFromVariablesEnvironment variables@(block:xs) identifier =
@@ -188,21 +189,21 @@ setValue state identifier value =
 --TODO: the same thing as in type_checker
 genericListEval :: (a -> Runtime e) -> [a] -> Runtime [e]
 genericListEval evaluator abstraction_list =
-		case abstraction_list of
-		[] -> return []
-		(abstraction:xs) -> do
-			head <- (evaluator abstraction)
-			tail <- (genericListEval evaluator xs)
-			return (head:tail)
+	case abstraction_list of
+	[] -> return []
+	(abstraction:xs) -> do
+		head <- (evaluator abstraction)
+		tail <- (genericListEval evaluator xs)
+		return (head:tail)
 
 genericListEvalWithParam :: (a -> b -> Runtime e) -> [a] -> [b] -> Runtime [e]
-genericListEvalWithParam evaluator abstraction_list_1 abstraction_list_2@(abstraction_2:ys) =
-		case abstraction_list_1 of
-		[] -> return []
-		(abstraction_1:xs) -> do
-			head <- (evaluator abstraction_1 abstraction_2)
-			tail <- (genericListEvalWithParam evaluator xs ys)
-			return (head:tail)
+genericListEvalWithParam evaluator abstraction_list_1 abstraction_list_2 =
+	case abstraction_list_1 of
+	[] -> return []
+	(abstraction_1:xs) -> do
+		first <- (evaluator abstraction_1 (head abstraction_list_2))
+		rest <- (genericListEvalWithParam evaluator xs (tail abstraction_list_2))
+		return (first:rest)
 
 ---------------------------------------
 
@@ -261,39 +262,43 @@ interpretExpression (EInteger integer) = do
 			--return DeducedNone
 		--Just _ -> return (DeducedError ["Redefinition of variable: " ++ string])
 
-interpretStatement :: Statement -> Runtime ()
+interpretStatement :: Statement -> Runtime RuntimeValue
 
 interpretStatement (SAssignment identifier expression) = do
 	value <- interpretExpression expression
 	Control.Monad.State.modify (\state -> setValue state identifier value)
+	return RuntimeNone
 
-interpretStatement (SDeclaration declaration) = do
-	return () --evalDeclaration declaration
+interpretStatement (SDeclaration (VariableDeclaration type' identifier)) = do
+	--TODO: those values should be given
+	Control.Monad.State.modify (\state -> addVariable state identifier (RuntimeNone))
+	return RuntimeNone
 	--TODO: not sure how we deal with declarations in functions vs in code
 
 interpretStatement (SExpression expression) = do
 	interpretExpression expression
-	return ()
+	return RuntimeNone
 
 interpretStatement (SBlock statements) = do
 	Control.Monad.State.modify openBlock
 	--TODO: we dont have statements interpreter yet
-	--temp <- interpretStatements statements
+	temp <- interpretStatements statements
 	--genericListEval interpretStatement statements
 	Control.Monad.State.modify leaveBlock
-	--return temp
+	return temp
 
 interpretStatement (SReturn expression) = do
 	value <- interpretExpression expression
-	--return value
-	return ()
+	return value
 
---TODO: what is the result (none or return?)
---interpretStatements :: [Statement] -> Runtime TypeInformation
---interpretStatements [] =
-	--return DeducedNone
---interpretStatements (x:xs) = do
-	--type1 <- interpretStatement x
+interpretStatements :: [Statement] -> Runtime RuntimeValue
+interpretStatements [] =
+	return RuntimeNone
+interpretStatements (x:xs) = do
+	value <- interpretStatement x
+	case value of
+		RuntimeNone -> interpretStatements xs
+		_ -> return value
 	--type2 <- interpretStatements xs
 	--return (typeStatement type1 type2)
 
@@ -310,21 +315,10 @@ interpretFunction (Function type' identifier declarations statements) arguments 
 	--Control.Monad.State.liftIO (print $ "Funkcja " ++ (show identifier))
 	Control.Monad.State.modify openBlock
 	genericListEvalWithParam interpretArgumentDeclaration declarations arguments
-	--interpret
-	value <- interpretStatement (statements !! 0)
+	value <- interpretStatements statements
 	Control.Monad.State.modify leaveBlock
-	--return computed value from statements
-	return (RuntimeInteger 1000)
+	return value
 
-
---interpretProgram :: Program -> Runtime RuntimeValue
---interpretProgram (Program functions) = do
-	----TODO: it is the same thing as running main() without params
-	--genericListEval interpretFunction functions
-
---checkAST :: Program -> ([[TypeInformation]], TypeCheckerState)
---checkAST ast =
-	--Control.Monad.State.runState (evalProgram ast) initialState
 
 interpretProgram :: Program -> Runtime RuntimeValue
 interpretProgram (Program functions) = do

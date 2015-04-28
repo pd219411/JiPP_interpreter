@@ -11,17 +11,22 @@ import ErrM
 import Interpreter
 
 
-import Debug.Trace
 import qualified Data.Map
 import qualified Data.Maybe
 import qualified Control.Monad.State
+
 --------------------------------
 data TypeInformation =
 	DeducedNone |
 	DeducedError [String] |
-	DeducedType Type |
-	DeducedReturn Type
+	DeducedType Type
 	deriving (Eq,Ord,Show)
+
+typeIsError :: TypeInformation -> Bool
+typeIsError info =
+	case info of
+		DeducedError _ -> True
+		_ -> False
 
 type Location = Int
 type FunctionTypeInformation = (Type, [Type])
@@ -97,13 +102,6 @@ leaveBlock state =
 		variables = tail (variables state),
 		locations = (locations state)
 	}
---stateAfterBlockLeft :: TypeCheckerState -> TypeCheckerState -> TypeCheckerState
---stateAfterBlockLeft state_on_enter state_on_leave =
---	TypeCheckerState {
---		functions = (functions state_on_leave),
---		variables = (variables state_on_enter),
---		locations = (locations state_on_enter)
---	}
 
 addVariable :: TypeCheckerState -> Ident -> Type -> TypeCheckerState
 addVariable state identifier type' = --TODO: what if one exists on this level
@@ -132,6 +130,9 @@ topVariable state identifier =
 		Nothing -> Nothing
 		Just location -> Just (getTypeFromLocation (locations state) location)
 
+
+
+
 typeOperationSame :: TypeInformation -> TypeInformation -> TypeInformation
 typeOperationSame type1 type2 =
 	if type1 == type2
@@ -149,6 +150,13 @@ typeStatement DeducedNone type' = type'
 typeStatement type' DeducedNone = type'
 typeStatement (DeducedError m1) (DeducedError m2) = DeducedError (m1 ++ m2)
 typeStatement type1 type2  = (DeducedError ["TODO deduction"])
+
+errorFold :: [TypeInformation] -> String -> TypeInformation
+errorFold infos error_message =
+	if (any typeIsError infos)
+	then (DeducedError [error_message])
+	else DeducedNone
+
 
 genericListEval :: (a -> Semantics e) -> [a] -> Semantics [e]
 genericListEval evaluator abstraction_list =
@@ -245,7 +253,8 @@ evalStatement (SDeclaration declaration) = do
 	evalVariableDeclaration declaration
 
 evalStatement (SExpression expression) = do
-	evalExpression expression
+	_ <- evalExpression expression
+	return DeducedNone
 
 evalStatement (SBlock statements) = do
 	Control.Monad.State.modify openBlock
@@ -255,44 +264,55 @@ evalStatement (SBlock statements) = do
 	return temp
 
 evalStatement (SReturn expression) = do
-	expression_info <- evalExpression expression
-	case expression_info of
-		DeducedType expression_type -> return (DeducedReturn expression_type)
-		_ -> return expression_info
+	evalExpression expression
+	--expression_info <- evalExpression expression
+	--case expression_info of
+		--DeducedType expression_type -> return (DeducedType expression_type)
+		--_ -> return expression_info
 
 evalStatements :: [Statement] -> Semantics TypeInformation
 evalStatements [] =
 	return DeducedNone
+evalStatements [statement] =
+	evalStatement statement
 evalStatements (x:xs) = do
-	type1 <- evalStatement x
-	type2 <- evalStatements xs
-	return (typeStatement type1 type2)
+	info <- evalStatement x
+	case info of
+		DeducedNone -> evalStatements xs
+		DeducedType _ -> return (DeducedError ["Ureachable code"])
+		_ -> return info
 
 typeFromDeclaration :: ArgumentDeclaration -> Type
 typeFromDeclaration (ArgumentDeclaration type' identifier) = type'
 
-evalFunction :: Function -> Semantics [TypeInformation]
+evalFunction :: Function -> Semantics TypeInformation
 evalFunction (Function type' identifier@(Ident string) declarations statements) = do
 	state_on_enter <- Control.Monad.State.get
 	case (getFunction state_on_enter identifier) of
-		Just info -> return [(DeducedError ["Redefinition of function: " ++ string])]
+		Just _ -> return (DeducedError ["Redefinition of function: " ++ string])
 		Nothing -> do
 			Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
 			Control.Monad.State.modify openBlock
 			temp1 <- genericListEval evalArgumentDeclaration declarations
-			temp2 <- genericListEval evalStatement statements
+			temp2 <- evalStatements statements
 			Control.Monad.State.modify leaveBlock
-			return (temp1 ++ temp2) --TODO: check returns etc.
+			return (errorFold (temp2:temp1) "Function contains an error")
 
-evalProgram :: Program -> Semantics [[TypeInformation]]
+isMain :: Function -> Bool
+isMain (Function _ (Ident string) declarations statements) =
+	string == "main" && declarations == []
+
+evalProgram :: Program -> Semantics TypeInformation
 evalProgram (Program functions) = do
-	--TODO: check if program contains function main()
-	genericListEval evalFunction functions
+	case (any isMain functions) of
+		False -> return (DeducedError ["main() does not exist"])
+		True -> do
+			functions_info <- genericListEval evalFunction functions
+			return (errorFold functions_info "Program contains an error")
 
-checkAST :: Program -> ([[TypeInformation]], TypeCheckerState)
+checkAST :: Program -> (TypeInformation, TypeCheckerState)
 checkAST ast =
 	Control.Monad.State.runState (evalProgram ast) initialState
-
 
 ---------------------------------
 
@@ -312,8 +332,11 @@ main = do
 			print "Parse Failed"
 			print s
 		Ok tree -> do
-			print (checkAST tree)
-			print "=============== LETS DO THIS:"
-			print (interpret tree)
-			--vartemp <- (interpret tree)
-			--print vartemp
+			let (compile_info, state) = (checkAST tree)
+			print compile_info
+			if compile_info == DeducedNone
+			then do
+				print "=============== LETS DO THIS:"
+				print (interpret tree)
+			else do
+				print "Fail"
