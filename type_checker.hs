@@ -28,6 +28,12 @@ typeIsError info =
 		DeducedError _ -> True
 		_ -> False
 
+typeIsOfType :: TypeInformation -> Type -> Bool
+typeIsOfType info type'=
+	case info of
+		DeducedType type' -> True
+		_ -> False
+
 type Location = Int
 type FunctionTypeInformation = (Type, [Type])
 type FunctionsEnvironment = Data.Map.Map Ident FunctionTypeInformation
@@ -167,6 +173,8 @@ genericListEval evaluator abstraction_list =
 			tail <- (genericListEval evaluator xs)
 			return (head:tail)
 
+---------------------------------------------------------
+
 evalExpression :: Expression -> Semantics TypeInformation
 
 evalExpression (ELess expression1 expression2) = do
@@ -249,6 +257,12 @@ evalStatement (SAssignment identifier@(Ident string) expression) = do
 					else return (DeducedError ["Assignment type mismatch: " ++ (show variable_type) ++ " = " ++ (show expression_type)])
 				_ -> return expression_info
 
+evalStatement (SBlock statements) = do
+	Control.Monad.State.modify openBlock
+	temp <- evalStatements statements
+	Control.Monad.State.modify leaveBlock
+	return temp
+
 evalStatement (SDeclaration declaration) = do
 	evalVariableDeclaration declaration
 
@@ -256,19 +270,26 @@ evalStatement (SExpression expression) = do
 	_ <- evalExpression expression
 	return DeducedNone
 
-evalStatement (SBlock statements) = do
-	Control.Monad.State.modify openBlock
-	temp <- evalStatements statements
-	--genericListEval evalStatement statements
-	Control.Monad.State.modify leaveBlock
-	return temp
+evalStatement (SIfBare expression statements) = do
+	expression_info <- evalExpression expression
+	--TODO: open block
+	statements_info <- evalStatements statements
+	if (typeIsOfType expression_info TBoolean)
+	then return (errorFold [statements_info] "if contains an error")
+	else return (DeducedError ["Condition not a boolean"])
+
+evalStatement (SIfElse expression statements1 statements2) = do
+	expression_info <- evalExpression expression
+	--TODO: open block
+	info1 <- evalStatements statements1
+	info2 <- evalStatements statements2
+	if (typeIsOfType expression_info TBoolean)
+	--then return (errorFold [statements_info] "if contains an error")
+	then return (typeOperationSame info1 info2)
+	else return (DeducedError ["Condition not a boolean"])
 
 evalStatement (SReturn expression) = do
 	evalExpression expression
-	--expression_info <- evalExpression expression
-	--case expression_info of
-		--DeducedType expression_type -> return (DeducedType expression_type)
-		--_ -> return expression_info
 
 evalStatements :: [Statement] -> Semantics TypeInformation
 evalStatements [] =
@@ -296,6 +317,7 @@ evalFunction (Function type' identifier@(Ident string) declarations statements) 
 			temp1 <- genericListEval evalArgumentDeclaration declarations
 			temp2 <- evalStatements statements
 			Control.Monad.State.modify leaveBlock
+			--TODO: CHECK RETURN EXISTS AND HAS FINE TYPE!
 			return (errorFold (temp2:temp1) "Function contains an error")
 
 isMain :: Function -> Bool

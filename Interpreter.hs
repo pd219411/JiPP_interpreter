@@ -269,23 +269,32 @@ interpretStatement (SAssignment identifier expression) = do
 	Control.Monad.State.modify (\state -> setValue state identifier value)
 	return RuntimeNone
 
+interpretStatement (SBlock statements) = do
+	Control.Monad.State.modify openBlock
+	temp <- interpretStatements statements
+	Control.Monad.State.modify leaveBlock
+	return temp
+
 interpretStatement (SDeclaration (VariableDeclaration type' identifier)) = do
 	--TODO: those values should be given
 	Control.Monad.State.modify (\state -> addVariable state identifier (RuntimeNone))
 	return RuntimeNone
-	--TODO: not sure how we deal with declarations in functions vs in code
 
 interpretStatement (SExpression expression) = do
 	interpretExpression expression
 	return RuntimeNone
 
-interpretStatement (SBlock statements) = do
-	Control.Monad.State.modify openBlock
-	--TODO: we dont have statements interpreter yet
-	temp <- interpretStatements statements
-	--genericListEval interpretStatement statements
-	Control.Monad.State.modify leaveBlock
-	return temp
+interpretStatement (SIfBare expression statements) = do
+	RuntimeBoolean condition_value <- interpretExpression expression
+	if condition_value
+	then interpretStatement (SBlock statements)
+	else return RuntimeNone
+
+interpretStatement (SIfElse expression statements1 statements2) = do
+	RuntimeBoolean condition_value <- interpretExpression expression
+	if condition_value
+	then interpretStatement (SBlock statements1)
+	else interpretStatement (SBlock statements2)
 
 interpretStatement (SReturn expression) = do
 	value <- interpretExpression expression

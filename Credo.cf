@@ -14,11 +14,14 @@ ArgumentDeclaration.  ArgumentDeclaration ::= Type Ident;
 VariableDeclaration.  VariableDeclaration ::= Type Ident;
 
 SAssignment. Statement  ::= Ident "=" Expression ;
+SBlock. Statement ::= "{" [Statement] "}" ;
 SDeclaration. Statement ::= VariableDeclaration;
 SExpression. Statement ::= Expression;
-SBlock. Statement ::= "{" [Statement] "}" ;
---SWhile. Statement ::= "while" "(" Expression ")" Statement ;
+SIfBare. Statement ::= "if" "(" Expression ")" "{" [Statement] "}";
+SIfElse. Statement ::= "if" "(" Expression ")" "{" [Statement] "}" "else" "{" [Statement] "}";
 SReturn. Statement ::= "return" Expression;
+--SWhile. Statement ::= "while" "(" Expression ")" Statement ;
+
 
 --EAssignment. Expression  ::= Ident "=" Expression ;
 ELess. Expression1 ::= Expression2 "<" Expression2 ;
