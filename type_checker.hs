@@ -14,18 +14,19 @@ import Interpreter
 import qualified Data.Map
 import qualified Data.Maybe
 import qualified Control.Monad.State
+import qualified System.Exit
 
 --------------------------------
 data TypeInformation =
 	DeducedNone |
-	DeducedError [String] |
+	DeducedError |
 	DeducedType Type
 	deriving (Eq,Ord,Show)
 
 typeIsError :: TypeInformation -> Bool
 typeIsError info =
 	case info of
-		DeducedError _ -> True
+		DeducedError -> True
 		_ -> False
 
 typeIsOfType :: TypeInformation -> Type -> Bool
@@ -39,12 +40,15 @@ type FunctionTypeInformation = (Type, [Type])
 type FunctionsEnvironment = Data.Map.Map Ident FunctionTypeInformation
 type VariablesEnvironment = [Data.Map.Map Ident Location]
 type LocationValues = Data.Map.Map Location Type
+type Error = String
+
 
 data TypeCheckerState =
 	TypeCheckerState {
 		functions :: FunctionsEnvironment,
 		variables :: VariablesEnvironment,
-		locations :: LocationValues
+		locations :: LocationValues,
+		errors :: [Error]
 	}
 	deriving (Eq,Ord,Show)
 
@@ -53,7 +57,8 @@ initialState =
 	TypeCheckerState {
 		functions = Data.Map.empty,
 		variables = [],
-		locations = Data.Map.empty
+		locations = Data.Map.empty,
+		errors = []
 	}
 
 type Semantics a = Control.Monad.State.State TypeCheckerState a
@@ -69,7 +74,8 @@ addFunction state identifier info = --let ret = Data.Map.lookup identifier (func
 	TypeCheckerState {
 		functions = (Data.Map.insert identifier info (functions state)),
 		variables = (variables state),
-		locations = (locations state)
+		locations = (locations state),
+		errors = (errors state)
 	}
 
 getFunction :: TypeCheckerState -> Ident -> Maybe FunctionTypeInformation
@@ -98,7 +104,8 @@ openBlock state =
 	TypeCheckerState {
 		functions = (functions state),
 		variables = (Data.Map.empty):(variables state),
-		locations = (locations state)
+		locations = (locations state),
+		errors = (errors state)
 	}
 
 leaveBlock :: TypeCheckerState -> TypeCheckerState
@@ -106,16 +113,18 @@ leaveBlock state =
 	TypeCheckerState {
 		functions = (functions state),
 		variables = tail (variables state),
-		locations = (locations state)
+		locations = (locations state),
+		errors = (errors state)
 	}
 
 addVariable :: TypeCheckerState -> Ident -> Type -> TypeCheckerState
-addVariable state identifier type' = --TODO: what if one exists on this level
+addVariable state identifier type' =
 	let new_location = (nextLocation (locations state)) in
 	TypeCheckerState {
 		functions = (functions state),
 		variables = (addToVariablesEnvironment (variables state) identifier new_location),
-		locations = (Data.Map.insert new_location type' (locations state))
+		locations = (Data.Map.insert new_location type' (locations state)),
+		errors = (errors state)
 	}
 
 getTypeFromLocation :: LocationValues -> Location -> Type
@@ -136,31 +145,56 @@ topVariable state identifier =
 		Nothing -> Nothing
 		Just location -> Just (getTypeFromLocation (locations state) location)
 
+addError :: TypeCheckerState -> Error -> TypeCheckerState
+addError state error =
+	TypeCheckerState {
+		functions = (functions state),
+		variables = (variables state),
+		locations = (locations state),
+		errors = (errors state) ++ [error]
+	}
 
 
+reportError :: Error -> Semantics ()
+reportError error = do
+	Control.Monad.State.modify (\state -> addError state error)
+
+reportErrorIf :: Bool -> Error -> Semantics ()
+reportErrorIf condition error = do
+	if condition
+	then reportError error
+	else return ()
 
 typeOperationSame :: TypeInformation -> TypeInformation -> TypeInformation
 typeOperationSame type1 type2 =
 	if type1 == type2
 	then type1
-	else DeducedError ["type combo error add " ++ (show type1)]
+	else DeducedError
+
+typeAssignment :: TypeInformation -> TypeInformation -> TypeInformation
+typeAssignment type1 type2 =
+	if type1 == type2
+	then DeducedNone
+	else DeducedError
 
 typeOperationToBoolean :: TypeInformation -> TypeInformation -> TypeInformation
 typeOperationToBoolean type1 type2 =
 	if type1 == type2
 	then DeducedType TBoolean
-	else DeducedError ["type combo error less " ++ (show type1)]
+	else DeducedError --["type combo error less " ++ (show type1)]
 
 typeStatement :: TypeInformation -> TypeInformation -> TypeInformation
 typeStatement DeducedNone type' = type'
 typeStatement type' DeducedNone = type'
-typeStatement (DeducedError m1) (DeducedError m2) = DeducedError (m1 ++ m2)
-typeStatement type1 type2  = (DeducedError ["TODO deduction"])
+--typeStatement (DeducedError m1) (DeducedError m2) = DeducedError (m1 ++ m2)
+typeStatement DeducedError DeducedError = DeducedError
+--typeStatement type1 type2  = (DeducedError ["TODO deduction"])
+typeStatement type1 type2  = DeducedError --["TODO deduction"])
 
 errorFold :: [TypeInformation] -> String -> TypeInformation
 errorFold infos error_message =
 	if (any typeIsError infos)
-	then (DeducedError [error_message])
+	then DeducedError --[error_message])
 	else DeducedNone
 
 
@@ -173,48 +207,62 @@ genericListEval evaluator abstraction_list =
 			tail <- (genericListEval evaluator xs)
 			return (head:tail)
 
+generateError :: Print a => a -> String -> Error
+generateError node description =
+	description ++ " in " ++ (printTree node)
+
 ---------------------------------------------------------
+
+expressionCheck :: TypeInformation -> Error -> Semantics TypeInformation
+expressionCheck type_info error = do
+	reportErrorIf (typeIsError type_info) error
+	return type_info
 
 evalExpression :: Expression -> Semantics TypeInformation
 
-evalExpression (EEqual expression1 expression2) = do
+evalExpression node@(EEqual expression1 expression2) = do
 	--TODO: copy paste from less; but this should also work for user defined types
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
-	return (typeOperationToBoolean type1 type2)
+	expressionCheck (typeOperationSame type1 type2) (generateError node "type mismatch")
 
-evalExpression (ELess expression1 expression2) = do
+evalExpression node@(ELess expression1 expression2) = do
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
-	return (typeOperationToBoolean type1 type2)
+	expressionCheck (typeOperationToBoolean type1 type2) (generateError node "type mismatch")
 
-evalExpression (EAdd expression1 expression2) = do
+evalExpression node@(EAdd expression1 expression2) = do
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
+	expressionCheck (typeOperationSame type1 type2) (generateError node "type mismatch")
+
+evalExpression node@(ESub expression1 expression2) = do
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
+	expressionCheck (typeOperationSame type1 type2) (generateError node "type mismatch")
+
+evalExpression node@(EMul expression1 expression2) = do
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
 	return (typeOperationSame type1 type2)
 
-evalExpression (ESub expression1 expression2) = do
-	type1 <- evalExpression expression1
-	type2 <- evalExpression expression2
-	return (typeOperationSame type1 type2)
-
-evalExpression (EMul expression1 expression2) = do
-	type1 <- evalExpression expression1
-	type2 <- evalExpression expression2
-	return (typeOperationSame type1 type2)
-
-evalExpression (ECall identifier@(Ident string) args) = do
+evalExpression node@(ECall identifier args) = do
 	state <- Control.Monad.State.get
 	case (getFunction state identifier) of
-		Nothing -> return (DeducedError ["Unknown function identifier: " ++ string])
+		Nothing -> do
+			reportError (generateError node "unknown function identifier")
+			return DeducedError
 		Just info -> do
 			types <- (genericListEval evalExpression args)
-			return (checkFunctionCall (snd info) types)
+			reportErrorIf (not (argsListOK (snd info) types)) (generateError node "bad of arguments")
+			return (DeducedType (fst info))
 
-evalExpression (EVariable identifier@(Ident string)) = do
+evalExpression node@(EVariable identifier@(Ident string)) = do
 	state <- Control.Monad.State.get
-	case (topVariable state identifier) of --TODO: check out blocks too
-		Nothing -> return (DeducedError ["Unknown identifier: " ++ string])
+	case (allVariable state identifier) of
+		Nothing -> do
+			reportError (generateError node "unknown identifier")
+			return DeducedError
 		Just type' -> return (DeducedType type')
 
 evalExpression (EBoolean boolean) = do
@@ -223,55 +271,43 @@ evalExpression (EBoolean boolean) = do
 evalExpression (EInteger integer) = do
 	return (DeducedType TInt)
 
-checkFunctionCall :: [Type] -> [TypeInformation] -> TypeInformation
-checkFunctionCall declaration_info args_info =
-	let number_of_declared_args = (length declaration_info) in
-	let number_of_provided_args = (length args_info) in
-	if (number_of_declared_args /= number_of_provided_args)
-	then DeducedError ["Bad number of arguments. Declared: " ++ (show number_of_declared_args) ++ " provided: " ++ (show number_of_provided_args)]
-	else checkArgsList declaration_info args_info
-
-checkArgsList :: [Type] -> [TypeInformation] -> TypeInformation
-checkArgsList [] [] = DeducedNone
-checkArgsList (x:xs) (y:ys) =
-	case y of
-		(DeducedType type') ->
-			if type' /= x
-			then DeducedError ["Argument type mismatch"]
-			else checkArgsList xs ys
-		_ -> DeducedError ["Argument of unexpected type"]
+argsListOK :: [Type] -> [TypeInformation] -> Bool
+argsListOK l1 l2 =
+	(map (\type' -> (DeducedType type')) l1) == l2
 
 
-declareHelper :: Type -> Ident -> Semantics TypeInformation
-declareHelper type' identifier@(Ident string) = do
+declareHelper :: Print a => a -> Type -> Ident -> Semantics TypeInformation
+declareHelper node type' identifier@(Ident string) = do
 	state <- Control.Monad.State.get
 	case (topVariable state identifier) of
 		Nothing -> do
 			Control.Monad.State.modify (\state -> addVariable state identifier type')
 			return DeducedNone
-		Just _ -> return (DeducedError ["Redefinition of variable: " ++ string])
+		Just _ -> do
+			reportError (generateError node "redefinition of variable")
+			return DeducedError
 
 evalArgumentDeclaration :: ArgumentDeclaration -> Semantics TypeInformation
-evalArgumentDeclaration (ArgumentDeclaration type' identifier) =
-	declareHelper type' identifier
+evalArgumentDeclaration node@(ArgumentDeclaration type' identifier) =
+	declareHelper node type' identifier
 
 evalVariableDeclaration :: VariableDeclaration -> Semantics TypeInformation
-evalVariableDeclaration (VariableDeclaration type' identifier) =
-	declareHelper type' identifier
+evalVariableDeclaration node@(VariableDeclaration type' identifier) =
+	declareHelper node type' identifier
 
 evalStatement :: Statement -> Semantics TypeInformation
 
-evalStatement (SAssignment identifier@(Ident string) expression) = do
+evalStatement node@(SAssignment identifier@(Ident string) expression) = do
 	state <- Control.Monad.State.get
 	case (allVariable state identifier) of
-		Nothing -> return (DeducedError ["Unknown identifier: " ++ string])
+		Nothing -> do
+			reportError (generateError node "unknown identifier")
+			return DeducedError
 		Just variable_type -> do
 			expression_info <- evalExpression expression
-			case expression_info of
-				DeducedType expression_type -> if variable_type == expression_type
-					then return DeducedNone
-					else return (DeducedError ["Assignment type mismatch: " ++ (show variable_type) ++ " = " ++ (show expression_type)])
-				_ -> return expression_info
+			let deduced = typeAssignment (DeducedType variable_type) expression_info
+			reportErrorIf (typeIsError deduced) "Type mismatch in assignment"
+			return deduced
 
 evalStatement (SBlock statements) = do
 	Control.Monad.State.modify openBlock
@@ -292,7 +328,7 @@ evalStatement (SIfBare expression statements) = do
 	statements_info <- evalStatements statements
 	if (typeIsOfType expression_info TBoolean)
 	then return (errorFold [statements_info] "if contains an error")
-	else return (DeducedError ["Condition not a boolean"])
+	else return DeducedError --["Condition not a boolean"])
 
 evalStatement (SIfElse expression statements1 statements2) = do
 	expression_info <- evalExpression expression
@@ -302,7 +338,7 @@ evalStatement (SIfElse expression statements1 statements2) = do
 	if (typeIsOfType expression_info TBoolean)
 	--then return (errorFold [statements_info] "if contains an error")
 	then return (typeOperationSame info1 info2)
-	else return (DeducedError ["Condition not a boolean"])
+	else return DeducedError --["Condition not a boolean"])
 
 evalStatement (SWhile expression statements) =
 	evalStatement (SIfBare expression statements)
@@ -319,7 +355,7 @@ evalStatements (x:xs) = do
 	info <- evalStatement x
 	case info of
 		DeducedNone -> evalStatements xs
-		DeducedType _ -> return (DeducedError ["Ureachable code"])
+		DeducedType _ -> return DeducedError --["Ureachable code"])
 		_ -> return info
 
 typeFromDeclaration :: ArgumentDeclaration -> Type
@@ -329,7 +365,7 @@ evalFunction :: Function -> Semantics TypeInformation
 evalFunction (Function type' identifier@(Ident string) declarations statements) = do
 	state_on_enter <- Control.Monad.State.get
 	case (getFunction state_on_enter identifier) of
-		Just _ -> return (DeducedError ["Redefinition of function: " ++ string])
+		Just _ -> return DeducedError --["Redefinition of function: " ++ string])
 		Nothing -> do
 			Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
 			Control.Monad.State.modify openBlock
@@ -346,7 +382,7 @@ isMain (Function _ (Ident string) declarations statements) =
 evalProgram :: Program -> Semantics TypeInformation
 evalProgram (Program functions) = do
 	case (any isMain functions) of
-		False -> return (DeducedError ["main() does not exist"])
+		False -> return DeducedError --["main() does not exist"])
 		True -> do
 			functions_info <- genericListEval evalFunction functions
 			return (errorFold functions_info "Program contains an error")
@@ -374,10 +410,18 @@ main = do
 			print s
 		Ok tree -> do
 			let (compile_info, state) = (checkAST tree)
-			print compile_info
-			if compile_info == DeducedNone
+			--print compile_info
+			print "============================= ending state:"
+			if (null (errors state))
 			then do
-				print "=============== LETS DO THIS:"
-				print (interpret tree)
+				--TODO: remove double checking
+				if compile_info == DeducedNone
+				then do
+					print "=============== LETS DO THIS:"
+					print (interpret tree)
+					System.Exit.exitWith (System.Exit.ExitSuccess)
+				else do
+					print "Fail"
 			else do
-				print "Fail"
+				print (errors state)
+				System.Exit.exitWith (System.Exit.ExitFailure 1)
