@@ -177,12 +177,28 @@ genericListEval evaluator abstraction_list =
 
 evalExpression :: Expression -> Semantics TypeInformation
 
+evalExpression (EEqual expression1 expression2) = do
+	--TODO: copy paste from less; but this should also work for user defined types
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
+	return (typeOperationToBoolean type1 type2)
+
 evalExpression (ELess expression1 expression2) = do
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
 	return (typeOperationToBoolean type1 type2)
 
 evalExpression (EAdd expression1 expression2) = do
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
+	return (typeOperationSame type1 type2)
+
+evalExpression (ESub expression1 expression2) = do
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
+	return (typeOperationSame type1 type2)
+
+evalExpression (EMul expression1 expression2) = do
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
 	return (typeOperationSame type1 type2)
@@ -287,6 +303,9 @@ evalStatement (SIfElse expression statements1 statements2) = do
 	--then return (errorFold [statements_info] "if contains an error")
 	then return (typeOperationSame info1 info2)
 	else return (DeducedError ["Condition not a boolean"])
+
+evalStatement (SWhile expression statements) =
+	evalStatement (SIfBare expression statements)
 
 evalStatement (SReturn expression) = do
 	evalExpression expression

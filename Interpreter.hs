@@ -209,6 +209,11 @@ genericListEvalWithParam evaluator abstraction_list_1 abstraction_list_2 =
 
 interpretExpression :: Expression -> Runtime RuntimeValue
 
+interpretExpression (EEqual expression1 expression2) = do
+	RuntimeInteger value1 <- interpretExpression expression1
+	RuntimeInteger value2 <- interpretExpression expression2
+	return (RuntimeBoolean (value1 == value2))
+
 interpretExpression (ELess expression1 expression2) = do
 	RuntimeInteger value1 <- interpretExpression expression1
 	RuntimeInteger value2 <- interpretExpression expression2
@@ -218,6 +223,16 @@ interpretExpression (EAdd expression1 expression2) = do
 	RuntimeInteger value1 <- interpretExpression expression1
 	RuntimeInteger value2 <- interpretExpression expression2
 	return (RuntimeInteger (value1 + value2))
+
+interpretExpression (ESub expression1 expression2) = do
+	RuntimeInteger value1 <- interpretExpression expression1
+	RuntimeInteger value2 <- interpretExpression expression2
+	return (RuntimeInteger (value1 - value2))
+
+interpretExpression (EMul expression1 expression2) = do
+	RuntimeInteger value1 <- interpretExpression expression1
+	RuntimeInteger value2 <- interpretExpression expression2
+	return (RuntimeInteger (value1 * value2))
 
 interpretExpression (ECall identifier args) = do
 	arg_values <- genericListEval interpretExpression args
@@ -299,6 +314,16 @@ interpretStatement (SIfElse expression statements1 statements2) = do
 interpretStatement (SReturn expression) = do
 	value <- interpretExpression expression
 	return value
+
+interpretStatement while@(SWhile expression statements) = do
+	RuntimeBoolean condition_value <- interpretExpression expression
+	if condition_value
+	then do
+		value <- interpretStatement (SBlock statements)
+		case value of
+			RuntimeNone -> interpretStatement while
+			_ -> return value
+	else return RuntimeNone
 
 interpretStatements :: [Statement] -> Runtime RuntimeValue
 interpretStatements [] =

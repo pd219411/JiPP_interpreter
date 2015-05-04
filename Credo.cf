@@ -20,15 +20,15 @@ SExpression. Statement ::= Expression;
 SIfBare. Statement ::= "if" "(" Expression ")" "{" [Statement] "}";
 SIfElse. Statement ::= "if" "(" Expression ")" "{" [Statement] "}" "else" "{" [Statement] "}";
 SReturn. Statement ::= "return" Expression;
---SWhile. Statement ::= "while" "(" Expression ")" Statement ;
+SWhile. Statement ::= "while" "(" Expression ")" "{" [Statement] "}";
 
+EEqual. Expression1 ::= Expression1 "==" Expression2;
+ELess. Expression1 ::= Expression2 "<" Expression2;
+EAdd.    Expression2 ::= Expression2 "+" Expression3;
+ESub.    Expression2 ::= Expression2 "-" Expression3;
+EMul.    Expression3 ::= Expression3 "*" Expression4;
 
---EAssignment. Expression  ::= Ident "=" Expression ;
-ELess. Expression1 ::= Expression2 "<" Expression2 ;
-EAdd.    Expression2 ::= Expression2 "+" Expression3 ;
---ESub.    Expression2 ::= Expression2 "-" Expression3 ;
---EMul.    Expression3 ::= Expression3 "*" Expression4 ;
-ECall.    Expression4 ::= Ident "(" [Expression] ")" ;
+ECall.    Expression4 ::= Ident "(" [Expression] ")";
 EVariable.    Expression4 ::= Ident ;
 --EStr.    Expression4 ::= String;
 EBoolean. Expression4 ::= Boolean;
