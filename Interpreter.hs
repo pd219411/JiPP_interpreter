@@ -290,9 +290,9 @@ interpretStatement (SBlock statements) = do
 	Control.Monad.State.modify leaveBlock
 	return temp
 
-interpretStatement (SDeclaration (VariableDeclaration type' identifier)) = do
-	--TODO: those values should be given
-	Control.Monad.State.modify (\state -> addVariable state identifier (RuntimeNone))
+interpretStatement (SDeclaration (VariableDeclaration type' identifier) expression) = do
+	value <- interpretExpression expression
+	Control.Monad.State.modify (\state -> addVariable state identifier value)
 	return RuntimeNone
 
 interpretStatement (SExpression expression) = do

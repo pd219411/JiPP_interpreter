@@ -15,7 +15,7 @@ VariableDeclaration.  VariableDeclaration ::= Type Ident;
 
 SAssignment. Statement  ::= Ident "=" Expression ;
 SBlock. Statement ::= "{" [Statement] "}" ;
-SDeclaration. Statement ::= VariableDeclaration;
+SDeclaration. Statement ::= VariableDeclaration "=" Expression;
 SExpression. Statement ::= Expression;
 SIfBare. Statement ::= "if" "(" Expression ")" "{" [Statement] "}";
 SIfElse. Statement ::= "if" "(" Expression ")" "{" [Statement] "}" "else" "{" [Statement] "}";

@@ -303,8 +303,9 @@ evalStatement (SBlock statements) = do
 	Control.Monad.State.modify leaveBlock
 	return temp
 
-evalStatement (SDeclaration declaration) = do
-	evalVariableDeclaration declaration
+evalStatement (SDeclaration declaration@(VariableDeclaration type' identifier) expression) = do
+	_ <- evalVariableDeclaration declaration
+	evalStatement (SAssignment identifier expression)
 
 evalStatement (SExpression expression) = do
 	_ <- evalExpression expression
