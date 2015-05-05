@@ -1,3 +1,5 @@
 bnfc -m -haskell <filename>
 
 bnfc -m -haskell Credo.cf && make && cat example.c | ./TestCredo
+
+ghc -o type_checker type_checker.hs && ./devel_tool.sh 0

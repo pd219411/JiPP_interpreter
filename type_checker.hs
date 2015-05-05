@@ -30,10 +30,8 @@ typeIsError info =
 		_ -> False
 
 typeIsOfType :: TypeInformation -> Type -> Bool
-typeIsOfType info type'=
-	case info of
-		DeducedType type' -> True
-		_ -> False
+typeIsOfType info type' =
+	info == (DeducedType type')
 
 type Location = Int
 type FunctionTypeInformation = (Type, [Type])
@@ -177,25 +175,17 @@ typeAssignment type1 type2 =
 	then DeducedNone
 	else DeducedError
 
+typeStatementIf :: TypeInformation -> TypeInformation -> TypeInformation
+typeStatementIf type1 type2 =
+	if type1 == type2
+	then type1
+	else DeducedNone
+
 typeOperationToBoolean :: TypeInformation -> TypeInformation -> TypeInformation
 typeOperationToBoolean type1 type2 =
 	if type1 == type2
 	then DeducedType TBoolean
 	else DeducedError --["type combo error less " ++ (show type1)]
-
-typeStatement :: TypeInformation -> TypeInformation -> TypeInformation
-typeStatement DeducedNone type' = type'
-typeStatement type' DeducedNone = type'
---typeStatement (DeducedError m1) (DeducedError m2) = DeducedError (m1 ++ m2)
-typeStatement DeducedError DeducedError = DeducedError
---typeStatement type1 type2  = (DeducedError ["TODO deduction"])
-typeStatement type1 type2  = DeducedError --["TODO deduction"])
-
-errorFold :: [TypeInformation] -> String -> TypeInformation
-errorFold infos error_message =
-	if (any typeIsError infos)
-	then DeducedError --[error_message])
-	else DeducedNone
 
 
 genericListEval :: (a -> Semantics e) -> [a] -> Semantics [e]
@@ -224,7 +214,7 @@ evalExpression node@(EEqual expression1 expression2) = do
 	--TODO: copy paste from less; but this should also work for user defined types
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
-	expressionCheck (typeOperationSame type1 type2) (generateError node "type mismatch")
+	expressionCheck (typeOperationToBoolean type1 type2) (generateError node "type mismatch")
 
 evalExpression node@(ELess expression1 expression2) = do
 	type1 <- evalExpression expression1
@@ -254,7 +244,7 @@ evalExpression node@(ECall identifier args) = do
 			return DeducedError
 		Just info -> do
 			types <- (genericListEval evalExpression args)
-			reportErrorIf (not (argsListOK (snd info) types)) (generateError node "bad of arguments")
+			reportErrorIf (not (argsListOK (snd info) types)) (generateError node "bad arguments")
 			return (DeducedType (fst info))
 
 evalExpression node@(EVariable identifier@(Ident string)) = do
@@ -282,10 +272,9 @@ declareHelper node type' identifier@(Ident string) = do
 	case (topVariable state identifier) of
 		Nothing -> do
 			Control.Monad.State.modify (\state -> addVariable state identifier type')
-			return DeducedNone
 		Just _ -> do
 			reportError (generateError node "redefinition of variable")
-			return DeducedError
+	return DeducedNone
 
 evalArgumentDeclaration :: ArgumentDeclaration -> Semantics TypeInformation
 evalArgumentDeclaration node@(ArgumentDeclaration type' identifier) =
@@ -302,12 +291,11 @@ evalStatement node@(SAssignment identifier@(Ident string) expression) = do
 	case (allVariable state identifier) of
 		Nothing -> do
 			reportError (generateError node "unknown identifier")
-			return DeducedError
 		Just variable_type -> do
 			expression_info <- evalExpression expression
 			let deduced = typeAssignment (DeducedType variable_type) expression_info
-			reportErrorIf (typeIsError deduced) "Type mismatch in assignment"
-			return deduced
+			reportErrorIf (typeIsError deduced) (generateError node "type mismatch")
+	return DeducedNone
 
 evalStatement (SBlock statements) = do
 	Control.Monad.State.modify openBlock
@@ -322,23 +310,15 @@ evalStatement (SExpression expression) = do
 	_ <- evalExpression expression
 	return DeducedNone
 
-evalStatement (SIfBare expression statements) = do
-	expression_info <- evalExpression expression
-	--TODO: open block
-	statements_info <- evalStatements statements
-	if (typeIsOfType expression_info TBoolean)
-	then return (errorFold [statements_info] "if contains an error")
-	else return DeducedError --["Condition not a boolean"])
+evalStatement node@(SIfBare expression statements) = do
+	evalStatement (SIfElse expression statements [])
 
-evalStatement (SIfElse expression statements1 statements2) = do
+evalStatement node@(SIfElse expression statements1 statements2) = do
 	expression_info <- evalExpression expression
-	--TODO: open block
-	info1 <- evalStatements statements1
-	info2 <- evalStatements statements2
-	if (typeIsOfType expression_info TBoolean)
-	--then return (errorFold [statements_info] "if contains an error")
-	then return (typeOperationSame info1 info2)
-	else return DeducedError --["Condition not a boolean"])
+	reportErrorIf (not (typeIsOfType expression_info TBoolean)) (generateError expression "condition not a boolean")
+	info1 <- evalStatement (SBlock statements1)
+	info2 <- evalStatement (SBlock statements2)
+	return (typeStatementIf info1 info2)
 
 evalStatement (SWhile expression statements) =
 	evalStatement (SIfBare expression statements)
@@ -355,7 +335,9 @@ evalStatements (x:xs) = do
 	info <- evalStatement x
 	case info of
 		DeducedNone -> evalStatements xs
-		DeducedType _ -> return DeducedError --["Ureachable code"])
+		DeducedType _ -> do
+			reportError (generateError xs "ureachable code")
+			return info
 		_ -> return info
 
 typeFromDeclaration :: ArgumentDeclaration -> Type
@@ -365,29 +347,29 @@ evalFunction :: Function -> Semantics TypeInformation
 evalFunction (Function type' identifier@(Ident string) declarations statements) = do
 	state_on_enter <- Control.Monad.State.get
 	case (getFunction state_on_enter identifier) of
-		Just _ -> return DeducedError --["Redefinition of function: " ++ string])
+		Just _ -> do
+			reportError (generateError identifier "function redefinition")
+			return DeducedError
 		Nothing -> do
 			Control.Monad.State.modify (\state -> addFunction state identifier (type', map typeFromDeclaration declarations))
 			Control.Monad.State.modify openBlock
 			temp1 <- genericListEval evalArgumentDeclaration declarations
 			temp2 <- evalStatements statements
 			Control.Monad.State.modify leaveBlock
-			--TODO: CHECK RETURN EXISTS AND HAS FINE TYPE!
-			return (errorFold (temp2:temp1) "Function contains an error")
+			reportErrorIf (temp2 == DeducedNone) (generateError identifier "no return")
+			reportErrorIf (temp2 /= DeducedNone && temp2 /= (DeducedType type')) (generateError identifier "return type mismatch")
+			return DeducedNone
 
 isMain :: Function -> Bool
 isMain (Function _ (Ident string) declarations statements) =
 	string == "main" && declarations == []
 
-evalProgram :: Program -> Semantics TypeInformation
+evalProgram :: Program -> Semantics [TypeInformation]
 evalProgram (Program functions) = do
-	case (any isMain functions) of
-		False -> return DeducedError --["main() does not exist"])
-		True -> do
-			functions_info <- genericListEval evalFunction functions
-			return (errorFold functions_info "Program contains an error")
+	reportErrorIf (not (any isMain functions)) ("program missing main() function")
+	genericListEval evalFunction functions
 
-checkAST :: Program -> (TypeInformation, TypeCheckerState)
+checkAST :: Program -> ([TypeInformation], TypeCheckerState)
 checkAST ast =
 	Control.Monad.State.runState (evalProgram ast) initialState
 
@@ -402,26 +384,19 @@ main = do
 	contents <- getContents
 	--print contents
 	let result = (parseResult pProgram contents)
-	print result
-	print "================"
+	--print result
 	case result of
 		Bad s -> do
 			print "Parse Failed"
 			print s
+			System.Exit.exitWith (System.Exit.ExitFailure 1)
 		Ok tree -> do
 			let (compile_info, state) = (checkAST tree)
 			--print compile_info
-			print "============================= ending state:"
 			if (null (errors state))
 			then do
-				--TODO: remove double checking
-				if compile_info == DeducedNone
-				then do
-					print "=============== LETS DO THIS:"
-					print (interpret tree)
-					System.Exit.exitWith (System.Exit.ExitSuccess)
-				else do
-					print "Fail"
+				print (interpret tree)
+				System.Exit.exitWith (System.Exit.ExitSuccess)
 			else do
 				print (errors state)
 				System.Exit.exitWith (System.Exit.ExitFailure 1)
