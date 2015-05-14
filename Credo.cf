@@ -13,7 +13,7 @@ ArgumentDeclaration.  ArgumentDeclaration ::= Type Ident;
 -- separator  nonempty Ident "," ;
 VariableDeclaration.  VariableDeclaration ::= Type Ident;
 
-SAssignment. Statement  ::= Ident "=" Expression ;
+SAssignment. Statement  ::= Lvalue "=" Expression ;
 SBlock. Statement ::= "{" [Statement] "}" ;
 SDeclaration. Statement ::= VariableDeclaration "=" Expression;
 SExpression. Statement ::= Expression;
@@ -22,17 +22,21 @@ SIfElse. Statement ::= "if" "(" Expression ")" "{" [Statement] "}" "else" "{" [S
 SReturn. Statement ::= "return" Expression;
 SWhile. Statement ::= "while" "(" Expression ")" "{" [Statement] "}";
 
+LIdentifier. Lvalue ::= Ident;
+LAddress. Lvalue ::= "*" Lvalue;
+
 EEqual. Expression1 ::= Expression1 "==" Expression2;
 ELess. Expression1 ::= Expression2 "<" Expression2;
-EAdd.    Expression2 ::= Expression2 "+" Expression3;
-ESub.    Expression2 ::= Expression2 "-" Expression3;
-EMul.    Expression3 ::= Expression3 "*" Expression4;
+EAdd. Expression2 ::= Expression2 "+" Expression3;
+ESub. Expression2 ::= Expression2 "-" Expression3;
+EMul. Expression3 ::= Expression3 "*" Expression4;
 
-ECall.    Expression4 ::= Ident "(" [Expression] ")";
-EVariable.    Expression4 ::= Ident ;
---EStr.    Expression4 ::= String;
+ECall. Expression4 ::= Ident "(" [Expression] ")";
+EVariable. Expression4 ::= Ident ;
+EReference. Expression4 ::= "&" Ident;
+--EStr. Expression4 ::= String;
 EBoolean. Expression4 ::= Boolean;
-EInteger.    Expression4 ::= Integer;
+EInteger. Expression4 ::= Integer;
 --EDouble. Expression4 ::= Double;
 
 coercions Expression 4 ;
@@ -41,6 +45,7 @@ separator Expression ",";
 
 TBoolean. Type ::= "bool";
 TInt. Type ::= "int";
+TPointer. Type ::= "*" Type;
 --TDouble. Type ::= "double";
 
 ValueFalse. Boolean ::= "false";

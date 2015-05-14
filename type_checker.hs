@@ -247,6 +247,14 @@ evalExpression node@(ECall identifier args) = do
 			reportErrorIf (not (argsListOK (snd info) types)) (generateError node "bad arguments")
 			return (DeducedType (fst info))
 
+evalExpression node@(EReference identifier@(Ident string)) = do
+	state <- Control.Monad.State.get
+	case (allVariable state identifier) of
+		Nothing -> do
+			reportError (generateError node "unknown identifier")
+			return DeducedError
+		Just type' -> return (DeducedType (TPointer type'))
+
 evalExpression node@(EVariable identifier@(Ident string)) = do
 	state <- Control.Monad.State.get
 	case (allVariable state identifier) of
@@ -284,17 +292,34 @@ evalVariableDeclaration :: VariableDeclaration -> Semantics TypeInformation
 evalVariableDeclaration node@(VariableDeclaration type' identifier) =
 	declareHelper node type' identifier
 
-evalStatement :: Statement -> Semantics TypeInformation
 
-evalStatement node@(SAssignment identifier@(Ident string) expression) = do
+evalLvalue :: Lvalue -> Semantics TypeInformation
+
+evalLvalue node@(LIdentifier identifier) = do
 	state <- Control.Monad.State.get
 	case (allVariable state identifier) of
 		Nothing -> do
 			reportError (generateError node "unknown identifier")
+			return DeducedNone
 		Just variable_type -> do
-			expression_info <- evalExpression expression
-			let deduced = typeAssignment (DeducedType variable_type) expression_info
-			reportErrorIf (typeIsError deduced) (generateError node "type mismatch")
+			return (DeducedType variable_type)
+
+evalLvalue node@(LAddress lvalue) = do
+	lvalue_info <- evalLvalue lvalue
+	case lvalue_info of
+		(DeducedType (TPointer type')) -> do
+			return (DeducedType type')
+		_ -> do
+			reportError (generateError node "not a pointer")
+			return DeducedNone
+
+evalStatement :: Statement -> Semantics TypeInformation
+
+evalStatement node@(SAssignment lvalue expression) = do
+	lvalue_info <- evalLvalue lvalue
+	expression_info <- evalExpression expression
+	let deduced = typeAssignment lvalue_info expression_info
+	reportErrorIf (typeIsError deduced) (generateError node "type mismatch")
 	return DeducedNone
 
 evalStatement (SBlock statements) = do
@@ -305,7 +330,7 @@ evalStatement (SBlock statements) = do
 
 evalStatement (SDeclaration declaration@(VariableDeclaration type' identifier) expression) = do
 	_ <- evalVariableDeclaration declaration
-	evalStatement (SAssignment identifier expression)
+	evalStatement (SAssignment (LIdentifier identifier) expression)
 
 evalStatement (SExpression expression) = do
 	_ <- evalExpression expression

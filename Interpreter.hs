@@ -16,11 +16,13 @@ import qualified Data.Map
 import qualified Data.Maybe
 import qualified Control.Monad.State
 --------------------------------
+type Location = Int
 
 data RuntimeValue =
 	RuntimeNone |
 	RuntimeInteger Integer |
-	RuntimeBoolean Bool
+	RuntimeBoolean Bool |
+	RuntimeReference Location
 	deriving (Eq,Ord,Show)
 
 convertBooleanToHaskell :: Boolean -> Bool
@@ -29,7 +31,6 @@ convertBooleanToHaskell boolean =
 		ValueFalse -> False
 		ValueTrue -> True
 
-type Location = Int
 type FunctionRuntimeInformation = Function
 type FunctionsEnvironment = Data.Map.Map Ident FunctionRuntimeInformation
 type VariablesEnvironment = [Data.Map.Map Ident Location]
@@ -145,46 +146,13 @@ getValue state identifier =
 	let location = getLocationFromEnvironment (variables state) identifier in
 	getValueFromLocation (locations state) location
 
-setValue :: InterpreterState -> Ident -> RuntimeValue -> InterpreterState
-setValue state identifier value =
-	let location = getLocationFromEnvironment (variables state) identifier in
+setValue :: InterpreterState -> Location -> RuntimeValue -> InterpreterState
+setValue state location value =
 	InterpreterState {
 		functions = (functions state),
 		variables = (variables state),
 		locations = (Data.Map.insert location value (locations state))
 	}
-
---allVariable :: TypeCheckerState -> Ident -> Maybe Type
---allVariable state identifier =
-	--let ret = allFromVariablesEnvironment (variables state) identifier in
-	--case ret of
-		--Nothing -> Nothing
-		--Just location -> Just (getTypeFromLocation (locations state) location)
-
---topVariable :: TypeCheckerState -> Ident -> Maybe Type
---topVariable state identifier =
-	--let ret = topFromVariablesEnvironment (variables state) identifier in
-	--case ret of
-		--Nothing -> Nothing
-		--Just location -> Just (getTypeFromLocation (locations state) location)
-
---typeOperationSame :: TypeInformation -> TypeInformation -> TypeInformation
---typeOperationSame type1 type2 =
-	--if type1 == type2
-	--then type1
-	--else DeducedError ["type combo error add " ++ (show type1)]
-
---typeOperationToBoolean :: TypeInformation -> TypeInformation -> TypeInformation
---typeOperationToBoolean type1 type2 =
-	--if type1 == type2
-	--then DeducedType TBoolean
-	--else DeducedError ["type combo error less " ++ (show type1)]
-
---typeStatement :: TypeInformation -> TypeInformation -> TypeInformation
---typeStatement DeducedNone type' = type'
---typeStatement type' DeducedNone = type'
---typeStatement (DeducedError m1) (DeducedError m2) = DeducedError (m1 ++ m2)
---typeStatement type1 type2  = (DeducedError ["TODO deduction"])
 
 --TODO: the same thing as in type_checker
 genericListEval :: (a -> Runtime e) -> [a] -> Runtime [e]
@@ -239,6 +207,10 @@ interpretExpression (ECall identifier args) = do
 	state <- Control.Monad.State.get
 	interpretFunction (getFunction state identifier) arg_values
 
+interpretExpression (EReference identifier) = do
+	state <- Control.Monad.State.get
+	return (RuntimeReference (getLocationFromEnvironment (variables state) identifier))
+
 interpretExpression (EVariable identifier) = do
 	state <- Control.Monad.State.get
 	return (getValue state identifier)
@@ -249,39 +221,30 @@ interpretExpression (EBoolean boolean) = do
 interpretExpression (EInteger integer) = do
 	return (RuntimeInteger integer)
 
---checkFunctionCall :: [Type] -> [TypeInformation] -> TypeInformation
---checkFunctionCall declaration_info args_info =
-	--let number_of_declared_args = (length declaration_info) in
-	--let number_of_provided_args = (length args_info) in
-	--if (number_of_declared_args /= number_of_provided_args)
-	--then DeducedError ["Bad number of arguments. Declared: " ++ (show number_of_declared_args) ++ " provided: " ++ (show number_of_provided_args)]
-	--else checkArgsList declaration_info args_info
 
---checkArgsList :: [Type] -> [TypeInformation] -> TypeInformation
---checkArgsList [] [] = DeducedNone
---checkArgsList (x:xs) (y:ys) =
-	--case y of
-		--(DeducedType type') ->
-			--if type' /= x
-			--then DeducedError ["Argument type mismatch."]
-			--else checkArgsList xs ys
-		--_ -> DeducedError ["Argument of unexpected type."]
+interpretLvalue :: Lvalue -> Runtime Location
 
---TODO: maybe we dont need to eval those if in context of function call
---evalDeclaration :: Declaration -> Runtime ()
---evalDeclaration (Declaration type' identifier@(Ident string)) = do
-	--state <- Control.Monad.State.get
-	--case (topVariable state identifier) of
-		--Nothing -> do
-			--Control.Monad.State.modify (\state -> addVariable state identifier type')
-			--return DeducedNone
-		--Just _ -> return (DeducedError ["Redefinition of variable: " ++ string])
+interpretLvalue (LIdentifier identifier) = do
+	state <- Control.Monad.State.get
+	return (getLocationFromEnvironment (variables state) identifier)
+
+interpretLvalue (LAddress lvalue) = do
+	address <- interpretLvalue lvalue
+	RuntimeReference location <- (getValueHelper address)
+	return location
+
+getValueHelper :: Location -> Runtime RuntimeValue
+getValueHelper location = do
+	state <- Control.Monad.State.get
+	return (getValueFromLocation (locations state) location)
+
 
 interpretStatement :: Statement -> Runtime RuntimeValue
 
-interpretStatement (SAssignment identifier expression) = do
+interpretStatement (SAssignment lvalue expression) = do
+	location <- interpretLvalue lvalue
 	value <- interpretExpression expression
-	Control.Monad.State.modify (\state -> setValue state identifier value)
+	Control.Monad.State.modify (\state -> setValue state location value)
 	return RuntimeNone
 
 interpretStatement (SBlock statements) = do
