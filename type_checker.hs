@@ -277,6 +277,9 @@ evalExpression node@(EReference identifier@(Ident string)) = do
 			return DeducedError
 		Just type' -> return (DeducedType (TPointer type'))
 
+evalExpression node@(ELvalue lvalue) = do
+	evalLvalue lvalue
+
 evalExpression node@(EVariable identifier@(Ident string)) = do
 	state <- Control.Monad.State.get
 	case (allVariable state identifier) of

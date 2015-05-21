@@ -237,13 +237,17 @@ interpretExpression (ECall identifier args) = do
 	state <- Control.Monad.State.get
 	interpretFunction (getFunction state identifier) arg_values
 
+interpretExpression (EVariable identifier) = do
+	state <- Control.Monad.State.get
+	return (getValue state identifier)
+
 interpretExpression (EReference identifier) = do
 	state <- Control.Monad.State.get
 	return (RuntimeReference (getLocationFromEnvironment (variables state) identifier))
 
-interpretExpression (EVariable identifier) = do
-	state <- Control.Monad.State.get
-	return (getValue state identifier)
+interpretExpression (ELvalue lvalue) = do
+	location <- interpretLvalue lvalue
+	getValueHelper location
 
 interpretExpression (EBoolean boolean) = do
 	return (RuntimeBoolean (convertBooleanToHaskell boolean))

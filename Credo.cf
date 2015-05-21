@@ -25,6 +25,7 @@ SWhile. Statement ::= "while" "(" Expression ")" "{" [Statement] "}";
 
 LIdentifier. Lvalue ::= Ident;
 LAddress. Lvalue ::= "*" Lvalue;
+LIndex. Lvalue ::= Ident "[" Expression "]";
 
 PrintString. PrintStatement ::= "print" String;
 PrintInteger. PrintStatement ::= "print" Expression;
@@ -43,6 +44,8 @@ ENot. Expression4 ::= "not" Expression4;
 ECall. Expression4 ::= Ident "(" [Expression] ")";
 EVariable. Expression4 ::= Ident ;
 EReference. Expression4 ::= "&" Ident;
+ELvalue. Expression4 ::= Lvalue;
+ENewArray. Expression4 ::= Type "[" Expression "," Expression "]";
 --EStr. Expression4 ::= String;
 EBoolean. Expression4 ::= Boolean;
 EInteger. Expression4 ::= Integer;
