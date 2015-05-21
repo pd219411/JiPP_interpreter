@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
 module Interpreter (
 interpret
 ) where
@@ -52,8 +53,18 @@ initialState functions_environment =
 		locations = Data.Map.empty
 	}
 
-type Runtime a = Control.Monad.State.State InterpreterState a
+--type Runtime a = Control.Monad.State.State InterpreterState a
 --type Runtime a = (Control.Monad.State.StateT InterpreterState IO) a
+type Runtime = Control.Monad.State.StateT InterpreterState IO
+
+
+class Printer p where
+	printString :: String -> p ()
+	printValue :: Int -> p ()
+
+instance Printer Runtime where
+	printString str = Control.Monad.State.liftIO $ putStr str
+	printValue i = Control.Monad.State.liftIO $ print i
 
 
 --TODO: copy paste from type chceker
@@ -187,6 +198,11 @@ interpretExpression (ELess expression1 expression2) = do
 	RuntimeInteger value2 <- interpretExpression expression2
 	return (RuntimeBoolean (value1 < value2))
 
+interpretExpression (ELessEqual expression1 expression2) = do
+	RuntimeInteger value1 <- interpretExpression expression1
+	RuntimeInteger value2 <- interpretExpression expression2
+	return (RuntimeBoolean (value1 <= value2))
+
 interpretExpression (EAdd expression1 expression2) = do
 	RuntimeInteger value1 <- interpretExpression expression1
 	RuntimeInteger value2 <- interpretExpression expression2
@@ -201,6 +217,20 @@ interpretExpression (EMul expression1 expression2) = do
 	RuntimeInteger value1 <- interpretExpression expression1
 	RuntimeInteger value2 <- interpretExpression expression2
 	return (RuntimeInteger (value1 * value2))
+
+interpretExpression (EAnd expression1 expression2) = do
+	RuntimeBoolean value1 <- interpretExpression expression1
+	RuntimeBoolean value2 <- interpretExpression expression2
+	return (RuntimeBoolean (value1 && value2))
+
+interpretExpression (EOr expression1 expression2) = do
+	RuntimeBoolean value1 <- interpretExpression expression1
+	RuntimeBoolean value2 <- interpretExpression expression2
+	return (RuntimeBoolean (value1 || value2))
+
+interpretExpression (ENot expression1) = do
+	RuntimeBoolean value1 <- interpretExpression expression1
+	return (RuntimeBoolean (not value1))
 
 interpretExpression (ECall identifier args) = do
 	arg_values <- genericListEval interpretExpression args
@@ -274,6 +304,15 @@ interpretStatement (SIfElse expression statements1 statements2) = do
 	then interpretStatement (SBlock statements1)
 	else interpretStatement (SBlock statements2)
 
+interpretStatement (SPrint (PrintString string)) = do
+	printString string
+	return RuntimeNone
+
+interpretStatement (SPrint (PrintInteger expression)) = do
+	RuntimeInteger value <- interpretExpression expression
+	printString (show value)
+	return RuntimeNone
+
 interpretStatement (SReturn expression) = do
 	value <- interpretExpression expression
 	return value
@@ -328,7 +367,6 @@ generateFunctionsMap (Program functions) =
 	in foldl (add_to_map) Data.Map.empty functions
 
 
-interpret :: Program -> RuntimeValue
-interpret program =
-	let (ret, state) = (Control.Monad.State.runState (interpretProgram program) (initialState (generateFunctionsMap program))) in
-	ret
+interpret :: Program -> IO (RuntimeValue, InterpreterState)
+interpret program = do
+	Control.Monad.State.runStateT (interpretProgram program) (initialState (generateFunctionsMap program))

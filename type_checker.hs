@@ -163,10 +163,20 @@ reportErrorIf condition error = do
 	then reportError error
 	else return ()
 
-typeOperationSame :: TypeInformation -> TypeInformation -> TypeInformation
-typeOperationSame type1 type2 =
+
+typeOperationGeneric :: TypeInformation -> TypeInformation -> Type -> Type -> TypeInformation
+typeOperationGeneric type1 type2 expected returned =
 	if type1 == type2
-	then type1
+	then
+		if typeIsOfType type1 expected
+		then DeducedType returned
+		else DeducedError
+	else DeducedError
+
+typeOperationGeneric1 :: TypeInformation -> Type -> TypeInformation
+typeOperationGeneric1 type' expected =
+	if typeIsOfType type' expected
+	then type'
 	else DeducedError
 
 typeAssignment :: TypeInformation -> TypeInformation -> TypeInformation
@@ -180,13 +190,6 @@ typeStatementIf type1 type2 =
 	if type1 == type2
 	then type1
 	else DeducedNone
-
-typeOperationToBoolean :: TypeInformation -> TypeInformation -> TypeInformation
-typeOperationToBoolean type1 type2 =
-	if type1 == type2
-	then DeducedType TBoolean
-	else DeducedError --["type combo error less " ++ (show type1)]
-
 
 genericListEval :: (a -> Semantics e) -> [a] -> Semantics [e]
 genericListEval evaluator abstraction_list =
@@ -214,27 +217,46 @@ evalExpression node@(EEqual expression1 expression2) = do
 	--TODO: copy paste from less; but this should also work for user defined types
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
-	expressionCheck (typeOperationToBoolean type1 type2) (generateError node "type mismatch")
+	expressionCheck (typeOperationGeneric type1 type2 TInt TBoolean) (generateError node "type mismatch")
 
 evalExpression node@(ELess expression1 expression2) = do
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
-	expressionCheck (typeOperationToBoolean type1 type2) (generateError node "type mismatch")
+	expressionCheck (typeOperationGeneric type1 type2 TInt TBoolean) (generateError node "type mismatch")
+
+evalExpression node@(ELessEqual expression1 expression2) = do
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
+	expressionCheck (typeOperationGeneric type1 type2 TInt TBoolean) (generateError node "type mismatch")
 
 evalExpression node@(EAdd expression1 expression2) = do
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
-	expressionCheck (typeOperationSame type1 type2) (generateError node "type mismatch")
+	expressionCheck (typeOperationGeneric type1 type2 TInt TInt) (generateError node "type mismatch")
 
 evalExpression node@(ESub expression1 expression2) = do
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
-	expressionCheck (typeOperationSame type1 type2) (generateError node "type mismatch")
+	expressionCheck (typeOperationGeneric type1 type2 TInt TInt) (generateError node "type mismatch")
 
 evalExpression node@(EMul expression1 expression2) = do
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
-	return (typeOperationSame type1 type2)
+	expressionCheck (typeOperationGeneric type1 type2 TInt TInt) (generateError node "type mismatch")
+
+evalExpression node@(EAnd expression1 expression2) = do
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
+	expressionCheck (typeOperationGeneric type1 type2 TBoolean TBoolean) (generateError node "type mismatch")
+
+evalExpression node@(EOr expression1 expression2) = do
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
+	expressionCheck (typeOperationGeneric type1 type2 TBoolean TBoolean) (generateError node "type mismatch")
+
+evalExpression node@(ENot expression1) = do
+	type1 <- evalExpression expression1
+	expressionCheck (typeOperationGeneric1 type1 TBoolean) (generateError node "type mismatch")
 
 evalExpression node@(ECall identifier args) = do
 	state <- Control.Monad.State.get
@@ -349,6 +371,9 @@ evalStatement node@(SIfElse expression statements1 statements2) = do
 evalStatement (SWhile expression statements) =
 	evalStatement (SIfBare expression statements)
 
+evalStatement (SPrint print) = do
+	evalPrint print
+
 evalStatement (SReturn expression) = do
 	evalExpression expression
 
@@ -365,6 +390,15 @@ evalStatements (x:xs) = do
 			reportError (generateError xs "ureachable code")
 			return info
 		_ -> return info
+
+evalPrint ::PrintStatement -> Semantics TypeInformation
+evalPrint (PrintString _) = do
+	return DeducedNone
+evalPrint node@(PrintInteger expression) = do
+	expression_info <- evalExpression expression
+	let deduced = typeAssignment (DeducedType TInt) expression_info
+	reportErrorIf (typeIsError deduced) (generateError node "expression not an integer")
+	return DeducedNone
 
 typeFromDeclaration :: ArgumentDeclaration -> Type
 typeFromDeclaration (ArgumentDeclaration type' identifier) = type'
@@ -421,7 +455,8 @@ main = do
 			--print compile_info
 			if (null (errors state))
 			then do
-				print (interpret tree)
+				(main_return, interpreter_internals) <- (interpret tree)
+				--print main_return
 				System.Exit.exitWith (System.Exit.ExitSuccess)
 			else do
 				print (errors state)

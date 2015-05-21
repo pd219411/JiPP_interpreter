@@ -19,17 +19,26 @@ SDeclaration. Statement ::= VariableDeclaration "=" Expression;
 SExpression. Statement ::= Expression;
 SIfBare. Statement ::= "if" "(" Expression ")" "{" [Statement] "}";
 SIfElse. Statement ::= "if" "(" Expression ")" "{" [Statement] "}" "else" "{" [Statement] "}";
+SPrint. Statement ::= PrintStatement;
 SReturn. Statement ::= "return" Expression;
 SWhile. Statement ::= "while" "(" Expression ")" "{" [Statement] "}";
 
 LIdentifier. Lvalue ::= Ident;
 LAddress. Lvalue ::= "*" Lvalue;
 
+PrintString. PrintStatement ::= "print" String;
+PrintInteger. PrintStatement ::= "print" Expression;
+
 EEqual. Expression1 ::= Expression1 "==" Expression2;
 ELess. Expression1 ::= Expression2 "<" Expression2;
+ELessEqual. Expression1 ::= Expression2 "<=" Expression2;
 EAdd. Expression2 ::= Expression2 "+" Expression3;
 ESub. Expression2 ::= Expression2 "-" Expression3;
 EMul. Expression3 ::= Expression3 "*" Expression4;
+
+EAnd. Expression3 ::= Expression3 "and" Expression4;
+EOr. Expression2 ::= Expression2 "or" Expression3;
+ENot. Expression4 ::= "not" Expression4;
 
 ECall. Expression4 ::= Ident "(" [Expression] ")";
 EVariable. Expression4 ::= Ident ;
