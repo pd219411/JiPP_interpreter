@@ -244,6 +244,16 @@ evalExpression node@(EMul expression1 expression2) = do
 	type2 <- evalExpression expression2
 	expressionCheck (typeOperationGeneric type1 type2 TInt TInt) (generateError node "type mismatch")
 
+evalExpression node@(EDiv expression1 expression2) = do
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
+	expressionCheck (typeOperationGeneric type1 type2 TInt TInt) (generateError node "type mismatch")
+
+evalExpression node@(EMod expression1 expression2) = do
+	type1 <- evalExpression expression1
+	type2 <- evalExpression expression2
+	expressionCheck (typeOperationGeneric type1 type2 TInt TInt) (generateError node "type mismatch")
+
 evalExpression node@(EAnd expression1 expression2) = do
 	type1 <- evalExpression expression1
 	type2 <- evalExpression expression2
@@ -269,16 +279,26 @@ evalExpression node@(ECall identifier args) = do
 			reportErrorIf (not (argsListOK (snd info) types)) (generateError node "bad arguments")
 			return (DeducedType (fst info))
 
-evalExpression node@(EReference identifier@(Ident string)) = do
-	state <- Control.Monad.State.get
-	case (allVariable state identifier) of
-		Nothing -> do
-			reportError (generateError node "unknown identifier")
-			return DeducedError
-		Just type' -> return (DeducedType (TPointer type'))
+evalExpression node@(EReference lvalue) = do
+	--state <- Control.Monad.State.get
+	--type1 <- evalLvalue lvalue
+	lvalue_info <- evalLvalue lvalue
+	case lvalue_info of
+		(DeducedType type') -> do
+			return (DeducedType (TPointer type'))
+		_ -> do
+			reportError (generateError node "bad location")
+			return DeducedNone
 
 evalExpression node@(ELvalue lvalue) = do
 	evalLvalue lvalue
+
+evalExpression node@(ENewArray type' size initial_value_expression) = do
+	type1 <- evalExpression size
+	type2 <- evalExpression initial_value_expression
+	reportErrorIf (not (typeIsOfType type1 TInt)) (generateError node "size is not an integer")
+	reportErrorIf (not ((DeducedType type') == type2)) (generateError node "initial value type mismatch")
+	return (DeducedType (TPointer type'))
 
 evalExpression node@(EVariable identifier@(Ident string)) = do
 	state <- Control.Monad.State.get
@@ -337,6 +357,11 @@ evalLvalue node@(LAddress lvalue) = do
 		_ -> do
 			reportError (generateError node "not a pointer")
 			return DeducedNone
+
+evalLvalue node@(LIndex identifier expression) = do
+	type1 <- evalExpression expression
+	reportErrorIf (not (typeIsOfType type1 TInt)) (generateError node "index is not an integer")
+	evalLvalue (LAddress (LIdentifier identifier))
 
 evalStatement :: Statement -> Semantics TypeInformation
 

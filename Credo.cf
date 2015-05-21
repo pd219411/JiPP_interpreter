@@ -36,6 +36,9 @@ ELessEqual. Expression1 ::= Expression2 "<=" Expression2;
 EAdd. Expression2 ::= Expression2 "+" Expression3;
 ESub. Expression2 ::= Expression2 "-" Expression3;
 EMul. Expression3 ::= Expression3 "*" Expression4;
+EDiv. Expression3 ::= Expression3 "/" Expression4;
+EMod. Expression3 ::= Expression3 "%" Expression4;
+
 
 EAnd. Expression3 ::= Expression3 "and" Expression4;
 EOr. Expression2 ::= Expression2 "or" Expression3;
@@ -43,9 +46,9 @@ ENot. Expression4 ::= "not" Expression4;
 
 ECall. Expression4 ::= Ident "(" [Expression] ")";
 EVariable. Expression4 ::= Ident ;
-EReference. Expression4 ::= "&" Ident;
+EReference. Expression4 ::= "&" Lvalue;
 ELvalue. Expression4 ::= Lvalue;
-ENewArray. Expression4 ::= Type "[" Expression "," Expression "]";
+ENewArray. Expression4 ::= "new" Type "[" Expression "]" "filled" "with" Expression;
 --EStr. Expression4 ::= String;
 EBoolean. Expression4 ::= Boolean;
 EInteger. Expression4 ::= Integer;

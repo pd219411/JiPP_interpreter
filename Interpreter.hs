@@ -131,22 +131,30 @@ leaveBlock state =
 		locations = (locations state)
 	}
 
-addVariable :: InterpreterState -> Ident -> RuntimeValue -> InterpreterState
-addVariable state identifier value = --TODO: what if one exists on this level
+expandLocations :: InterpreterState -> RuntimeValue -> InterpreterState
+expandLocations state value =
 	let new_location = (nextLocation (locations state)) in
 	InterpreterState {
 		functions = (functions state),
-		variables = (addLocationToEnvironment (variables state) identifier new_location),
+		variables = (variables state),
 		locations = (Data.Map.insert new_location value (locations state))
 	}
 
---addIdentifier :: InterpreterState -> Ident -> InterpreterState
---addIdentifier state identifier =
-	--InterpreterState {
-		--functions = (functions state),
-		--variables = (variables state),
-		--locations = (Data.Map.insert location value (locations state))
-	--}
+addVariable :: InterpreterState -> Ident -> RuntimeValue -> InterpreterState
+addVariable state identifier value =
+	let new_location = (nextLocation (locations state)) in
+	let state' = InterpreterState {
+		functions = (functions state),
+		variables = (addLocationToEnvironment (variables state) identifier new_location),
+		locations = (locations state)
+	} in
+	expandLocations state' value
+
+addArray :: InterpreterState -> Integer -> RuntimeValue -> InterpreterState
+addArray state size initial =
+	if size > 0
+	then (addArray (expandLocations state initial) (size - 1) initial)
+	else state
 
 getValueFromLocation :: LocationValues -> Location -> RuntimeValue
 getValueFromLocation locations location =
@@ -218,6 +226,16 @@ interpretExpression (EMul expression1 expression2) = do
 	RuntimeInteger value2 <- interpretExpression expression2
 	return (RuntimeInteger (value1 * value2))
 
+interpretExpression (EDiv expression1 expression2) = do
+	RuntimeInteger value1 <- interpretExpression expression1
+	RuntimeInteger value2 <- interpretExpression expression2
+	return (RuntimeInteger (div value1 value2))
+
+interpretExpression (EMod expression1 expression2) = do
+	RuntimeInteger value1 <- interpretExpression expression1
+	RuntimeInteger value2 <- interpretExpression expression2
+	return (RuntimeInteger (mod value1 value2))
+
 interpretExpression (EAnd expression1 expression2) = do
 	RuntimeBoolean value1 <- interpretExpression expression1
 	RuntimeBoolean value2 <- interpretExpression expression2
@@ -241,13 +259,26 @@ interpretExpression (EVariable identifier) = do
 	state <- Control.Monad.State.get
 	return (getValue state identifier)
 
-interpretExpression (EReference identifier) = do
+interpretExpression (EReference lvalue) = do
 	state <- Control.Monad.State.get
-	return (RuntimeReference (getLocationFromEnvironment (variables state) identifier))
+	location <- interpretLvalue lvalue
+	return (RuntimeReference location)
 
 interpretExpression (ELvalue lvalue) = do
 	location <- interpretLvalue lvalue
 	getValueHelper location
+
+interpretExpression (ENewArray type' size_expression initial_value_expression) = do
+	RuntimeInteger size <- interpretExpression size_expression
+	value <- interpretExpression initial_value_expression
+	state <- Control.Monad.State.get
+	let first_location = nextLocation (locations state)
+	if ((size < 1) || (size > (1024 * 1024)))
+	then do
+		fail "Invalid array size"
+	else do
+		Control.Monad.State.modify (\state -> addArray state size value)
+		return (RuntimeReference first_location)
 
 interpretExpression (EBoolean boolean) = do
 	return (RuntimeBoolean (convertBooleanToHaskell boolean))
@@ -266,6 +297,12 @@ interpretLvalue (LAddress lvalue) = do
 	address <- interpretLvalue lvalue
 	RuntimeReference location <- (getValueHelper address)
 	return location
+
+interpretLvalue (LIndex identifier expression) = do
+	RuntimeInteger index <- interpretExpression expression
+	location <- interpretLvalue (LAddress (LIdentifier identifier))
+	return (location + (fromIntegral index))
+	--evalLvalue (LAddress (LIdentifier identifier))
 
 getValueHelper :: Location -> Runtime RuntimeValue
 getValueHelper location = do
