@@ -60,6 +60,8 @@ separator Expression ",";
 
 TBoolean. Type ::= "bool";
 TInt. Type ::= "int";
+TFunction. Type ::= "function" Type "(" [Type] ")";
+separator  Type ",";
 TPointer. Type ::= "*" Type;
 --TDouble. Type ::= "double";
 

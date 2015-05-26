@@ -1,5 +1,5 @@
 int replace(**int x) {
-	**x = 1;
+	**x = **x;
 	return 0;
 }
 

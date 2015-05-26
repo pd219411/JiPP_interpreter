@@ -272,8 +272,15 @@ evalExpression node@(ECall identifier args) = do
 	state <- Control.Monad.State.get
 	case (getFunction state identifier) of
 		Nothing -> do
-			reportError (generateError node "unknown function identifier")
-			return DeducedError
+			type1 <- evalExpression (EVariable identifier)
+			case type1 of
+				DeducedType (TFunction return_type param_types) -> do
+					types <- (genericListEval evalExpression args)
+					reportErrorIf (not (argsListOK param_types types)) (generateError node "bad arguments")
+					return (DeducedType return_type)
+				_ -> do
+					reportError (generateError node "unknown function identifier")
+					return DeducedError
 		Just info -> do
 			types <- (genericListEval evalExpression args)
 			reportErrorIf (not (argsListOK (snd info) types)) (generateError node "bad arguments")
@@ -302,11 +309,16 @@ evalExpression node@(ENewArray type' size initial_value_expression) = do
 
 evalExpression node@(EVariable identifier@(Ident string)) = do
 	state <- Control.Monad.State.get
-	case (allVariable state identifier) of
+	case (getFunction state identifier) of
 		Nothing -> do
-			reportError (generateError node "unknown identifier")
-			return DeducedError
-		Just type' -> return (DeducedType type')
+			case (allVariable state identifier) of
+				Nothing -> do
+					reportError (generateError node "unknown identifier")
+					return DeducedError
+				Just type' -> return (DeducedType type')
+		Just (return_type, param_types) -> do
+			return (DeducedType (TFunction return_type param_types))
+
 
 evalExpression (EBoolean boolean) = do
 	return (DeducedType TBoolean)

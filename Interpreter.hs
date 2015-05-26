@@ -23,7 +23,8 @@ data RuntimeValue =
 	RuntimeNone |
 	RuntimeInteger Integer |
 	RuntimeBoolean Bool |
-	RuntimeReference Location
+	RuntimeReference Location |
+	RuntimeFunction Ident
 	deriving (Eq,Ord,Show)
 
 convertBooleanToHaskell :: Boolean -> Bool
@@ -82,9 +83,10 @@ nextLocation e =
 		--locations = (locations state)
 	--}
 
-getFunction :: InterpreterState -> Ident -> FunctionRuntimeInformation
+getFunction :: InterpreterState -> Ident -> Maybe FunctionRuntimeInformation
 getFunction state identifier =
-	Data.Maybe.fromJust (Data.Map.lookup identifier (functions state))
+	Data.Map.lookup identifier (functions state)
+	-- Data.Maybe.fromJust (Data.Map.lookup identifier (functions state))
 
 --addToVariablesEnvironment :: VariablesEnvironment -> Ident -> Location -> VariablesEnvironment
 --addToVariablesEnvironment [] _ _ = error "Adding variable to empty environment stack"
@@ -253,11 +255,22 @@ interpretExpression (ENot expression1) = do
 interpretExpression (ECall identifier args) = do
 	arg_values <- genericListEval interpretExpression args
 	state <- Control.Monad.State.get
-	interpretFunction (getFunction state identifier) arg_values
+	case (getFunction state identifier) of
+		Nothing -> do
+			RuntimeFunction function_identifier <- interpretExpression (EVariable identifier)
+			let Just function = (getFunction state function_identifier)
+			interpretFunction function arg_values
+		Just function -> do
+			interpretFunction function arg_values
 
 interpretExpression (EVariable identifier) = do
 	state <- Control.Monad.State.get
-	return (getValue state identifier)
+	case (getFunction state identifier) of
+		Nothing -> do
+			return (getValue state identifier)
+		Just function -> do
+			return (RuntimeFunction identifier)
+			--interpretFunction function arg_values
 
 interpretExpression (EReference lvalue) = do
 	state <- Control.Monad.State.get
